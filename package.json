@@ -3,12 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "pnpm run dev:vercel",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "dev:vite": "vite",
-    "build:vite": "vite build"
+    "build:vite": "vite build",
+    "dev:next": "next dev",
+    "deploy:dev": "vercel",
+    "deploy:prod": "vercel --prod",
+    "dev:vercel": "vercel dev"
   },
   "dependencies": {
     "next": "16.3.4",

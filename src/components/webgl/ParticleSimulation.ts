@@ -1,13 +1,8 @@
 import * as THREE from "three";
 import { simulationShader } from "./monitorShaders";
 
-export const PARTICLE_TEXTURE_SIZE = 1024;
-
 export class ParticleSimulation {
-  private targets = [0, 1, 2].map(() => new THREE.WebGLRenderTarget(PARTICLE_TEXTURE_SIZE, PARTICLE_TEXTURE_SIZE, {
-    type: THREE.FloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
-    depthBuffer: false, stencilBuffer: false,
-  }));
+  private targets: THREE.WebGLRenderTarget[];
   private scene = new THREE.Scene();
   private camera = new THREE.Camera();
   private geometry = new THREE.PlaneGeometry(2, 2);
@@ -22,7 +17,12 @@ export class ParticleSimulation {
       uModelView: { value: new THREE.Matrix4() }, uProjection: { value: new THREE.Matrix4() }, uViewToLocal: { value: new THREE.Matrix4() },
     },
   });
-  constructor(private renderer: THREE.WebGLRenderer, seed: THREE.Texture) {
+  constructor(private renderer: THREE.WebGLRenderer, seed: THREE.DataTexture) {
+    const size = seed.image.width;
+    this.targets = [0, 1, 2].map(() => new THREE.WebGLRenderTarget(size, size, {
+      type: THREE.FloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
+      depthBuffer: false, stencilBuffer: false,
+    }));
     this.material.uniforms.uPositions.value = seed;
     this.material.uniforms.uOrigins.value = seed;
     const quad = new THREE.Mesh(this.geometry, this.material);

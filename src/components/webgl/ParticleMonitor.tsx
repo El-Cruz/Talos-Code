@@ -3,7 +3,8 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { burstValue, loadingState, type BurstTransition } from "./burstTransition";
-import { PARTICLE_TEXTURE_SIZE, ParticleSimulation } from "./ParticleSimulation";
+import { ParticleSimulation } from "./ParticleSimulation";
+import { selectPerformanceTier } from "./performanceTier";
 import { FluidSimulation } from "./FluidSimulation";
 import { vertexShader, fragmentShader } from "./monitorShaders";
 
@@ -25,6 +26,12 @@ export function ParticleMonitor({ activeTab, onReady }: { activeTab: string; onR
   useEffect(() => {
     const host = container.current;
     if (!host) return;
+    const tier = selectPerformanceTier({
+      width: window.innerWidth,
+      cores: navigator.hardwareConcurrency,
+      mobile: /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && window.matchMedia("(pointer: coarse)").matches),
+      memory: (navigator as Navigator & { deviceMemory?: number }).deviceMemory,
+    });
     let renderer: THREE.WebGLRenderer;
     try { renderer = new THREE.WebGLRenderer({ alpha: true, antialias: false }); }
     catch (error) { console.warn("Particle monitor requires WebGL2", error); readyCallback.current(); return; }
@@ -33,7 +40,7 @@ export function ParticleMonitor({ activeTab, onReady }: { activeTab: string; onR
     let fluid: FluidSimulation | null = null;
     // WebGL2 supports float sampling natively; renderable float attachments need this extension.
     if (renderer.extensions.has("EXT_color_buffer_float")) {
-      try { fluid = new FluidSimulation(renderer); }
+      try { fluid = new FluidSimulation(renderer, tier.fluidSize, tier.pressureIterations); }
       catch (error) { console.warn("[fluid] Initialization failed; fluid motion disabled; using ambient curl fallback.", error); }
     } else {
       console.warn("[fluid] EXT_color_buffer_float unavailable; fluid advection disabled, using vertex animation fallback.");
@@ -43,7 +50,7 @@ export function ParticleMonitor({ activeTab, onReady }: { activeTab: string; onR
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 50);
     camera.position.set(0, 0, 8);
-    const size = PARTICLE_TEXTURE_SIZE, count = size * size;
+    const size = Math.min(tier.particleSize, renderer.capabilities.maxTextureSize), count = size * size;
     const data = new Float32Array(count * 4);
     const lookup = new Float32Array(count * 2);
     const randoms = new Float32Array(count);
@@ -54,11 +61,13 @@ export function ParticleMonitor({ activeTab, onReady }: { activeTab: string; onR
       randoms[i] = random();
       const object = random();
       const x = random() - 0.5, y = random() - 0.5, z = random() - 0.5;
-      const origin = object < 0.72 ? [x * 3.4, y * 3.1 - 0.25, z * 2.1]
-        : object < 0.94 ? [x * 2.5 - 0.12, y * 0.4 - 1.87, z * 1.1 + 1.35]
-        : [x * 0.65 + 1.55, y * 0.45 - 1.82, z * 0.85 + 1.4];
-      data.set([...origin, randoms[i]], i * 4);
-      lookup.set([(i % size + 0.5) / size, (Math.floor(i / size) + 0.5) / size], i * 2);
+      const offset = i * 4;
+      data[offset] = object < 0.72 ? x * 3.4 : object < 0.94 ? x * 2.5 - 0.12 : x * 0.65 + 1.55;
+      data[offset + 1] = object < 0.72 ? y * 3.1 - 0.25 : object < 0.94 ? y * 0.4 - 1.87 : y * 0.45 - 1.82;
+      data[offset + 2] = object < 0.72 ? z * 2.1 : object < 0.94 ? z * 1.1 + 1.35 : z * 0.85 + 1.4;
+      data[offset + 3] = randoms[i];
+      lookup[i * 2] = (i % size + 0.5) / size;
+      lookup[i * 2 + 1] = (Math.floor(i / size) + 0.5) / size;
     }
     const texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat, THREE.FloatType);
     texture.minFilter = texture.magFilter = THREE.NearestFilter;
@@ -86,7 +95,7 @@ export function ParticleMonitor({ activeTab, onReady }: { activeTab: string; onR
     const resize = () => {
       const { width, height } = host.getBoundingClientRect();
       if (!width || !height) return;
-      const ratio = Math.min(window.devicePixelRatio, 2);
+      const ratio = Math.min(window.devicePixelRatio, 1.5);
       renderer.setPixelRatio(ratio);
       renderer.setSize(width, height);
       material.uniforms.uPixelRatio.value = ratio;
@@ -100,14 +109,14 @@ export function ParticleMonitor({ activeTab, onReady }: { activeTab: string; onR
     observer.observe(host);
     resize();
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const start = performance.now();
+    let start = performance.now();
     let lastFrame = start;
     let ready = false;
     prevMouse.current = null;
     const modelView = new THREE.Matrix4();
     const strokes: { from: THREE.Vector2; to: THREE.Vector2; force: THREE.Vector2 }[] = [];
     const onPointer = (event: MouseEvent) => {
-      if (reducedMotion.matches) return;
+      if (document.hidden || reducedMotion.matches) return;
       const rect = renderer.domElement.getBoundingClientRect(), now = performance.now();
       if (!rect.width || !rect.height) return;
       // client coordinates and DOM bounds are both CSS pixels: DPR cancels in UV space.
@@ -125,7 +134,8 @@ export function ParticleMonitor({ activeTab, onReady }: { activeTab: string; onR
     window.addEventListener("mousemove", onPointer, { passive: true, capture: true });
     window.addEventListener("blur", resetPointer);
     document.documentElement.addEventListener("pointerleave", resetPointer);
-    renderer.setAnimationLoop(() => {
+    const animate = () => {
+      if (document.hidden) return;
       const now = performance.now();
       const dt = Math.min((now-lastFrame)/1000, 1/30); lastFrame = now;
       for (const stroke of strokes) {
@@ -146,8 +156,30 @@ export function ParticleMonitor({ activeTab, onReady }: { activeTab: string; onR
         material.uniforms.uPositions.value = simulation.step(reducedMotion.matches ? 0 : dt, time, burst, fluid?.velocityTexture ?? emptyFlow, modelView, camera.projectionMatrix);
       }
       renderer.render(scene, camera);
-    });
+    };
+    let hiddenAt: number | null = document.hidden ? performance.now() : null;
+    const onVisibility = () => {
+      resetPointer(); strokes.length = 0;
+      if (document.hidden) {
+        hiddenAt = performance.now();
+        renderer.setAnimationLoop(null);
+      } else {
+        const now = performance.now();
+        if (hiddenAt !== null) {
+          start += now - hiddenAt;
+          // Freeze loading and transitions without a large time jump on resume.
+          if (Number.isFinite(burstTransition.current.start)) {
+            burstTransition.current.start += now - Math.max(hiddenAt, burstTransition.current.start);
+          }
+        }
+        hiddenAt = null; lastFrame = now;
+        renderer.setAnimationLoop(animate);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    if (!document.hidden) renderer.setAnimationLoop(animate);
     return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("mousemove", onPointer, true);
       window.removeEventListener("blur", resetPointer);
       document.documentElement.removeEventListener("pointerleave", resetPointer);

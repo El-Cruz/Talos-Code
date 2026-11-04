@@ -55,15 +55,16 @@ void main(){
 
 export class FluidSimulation {
   private targets: THREE.WebGLRenderTarget[] = [];
-  private makeTarget = () => {
-    const target = new THREE.WebGLRenderTarget(128, 128, { type: THREE.HalfFloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false, stencilBuffer: false });
+  private makeTarget = (size: number) => {
+    // Filtering keeps the particle sampler smooth when the fluid grid is downscaled.
+    const target = new THREE.WebGLRenderTarget(size, size, { type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false, stencilBuffer: false });
     this.targets.push(target); return target;
   };
-  private velocity = [this.makeTarget(), this.makeTarget()];
-  private density = [this.makeTarget(), this.makeTarget()];
-  private pressure = [this.makeTarget(), this.makeTarget()];
-  private divergence = this.makeTarget();
-  private curlTarget = this.makeTarget();
+  private velocity: THREE.WebGLRenderTarget[];
+  private density: THREE.WebGLRenderTarget[];
+  private pressure: THREE.WebGLRenderTarget[];
+  private divergence: THREE.WebGLRenderTarget;
+  private curlTarget: THREE.WebGLRenderTarget;
   private scene = new THREE.Scene();
   private camera = new THREE.Camera();
   private geometry = new THREE.PlaneGeometry(2, 2);
@@ -72,7 +73,13 @@ export class FluidSimulation {
     texel:{value:new THREE.Vector2(1/128,1/128)},from:{value:new THREE.Vector2()},to:{value:new THREE.Vector2()},impulse:{value:new THREE.Vector2()},
     dt:{value:0},decay:{value:0},aspect:{value:1},splatRadius:{value:CURSOR_RADIUS},operation:{value:0},
   }});
-  constructor(private renderer: THREE.WebGLRenderer) {
+  constructor(private renderer: THREE.WebGLRenderer, size = 64, private pressureIterations = 5) {
+    this.velocity = [this.makeTarget(size), this.makeTarget(size)];
+    this.density = [this.makeTarget(size), this.makeTarget(size)];
+    this.pressure = [this.makeTarget(size), this.makeTarget(size)];
+    this.divergence = this.makeTarget(size);
+    this.curlTarget = this.makeTarget(size);
+    this.material.uniforms.texel.value.set(1 / size, 1 / size);
     const quad = new THREE.Mesh(this.geometry,this.material);
     quad.frustumCulled = false;
     this.scene.add(quad);
@@ -125,7 +132,7 @@ export class FluidSimulation {
     const color = this.renderer.getClearColor(new THREE.Color()), alpha = this.renderer.getClearAlpha();
     this.renderer.setClearColor(0, 0); this.renderer.clear(); this.renderer.setClearColor(color, alpha);
     u.divergence.value=this.divergence.texture;
-    for(let i=0;i<20;i++){u.pressure.value=this.pressure[0].texture;this.pass(4,this.pressure[1]);this.swap(this.pressure);}
+    for(let i=0;i<this.pressureIterations;i++){u.pressure.value=this.pressure[0].texture;this.pass(4,this.pressure[1]);this.swap(this.pressure);}
     u.pressure.value=this.pressure[0].texture;this.pass(5,this.velocity[1]);this.swap(this.velocity);
     u.velocity.value=this.velocityTexture;u.field.value=this.densityTexture;u.decay.value=1.6;
     this.pass(0,this.density[1]);this.swap(this.density);
