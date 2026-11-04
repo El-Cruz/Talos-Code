@@ -1,26 +1,26 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { burstValue } from './burstTransition.ts';
-
-test('explodes continuously over 200ms and reforms over 1500ms', () => {
-  const transition = { start: 1000, from: 0 };
-  assert.equal(burstValue(transition, 1000), 0);
-  assert.equal(burstValue(transition, 1100), 0.5);
-  assert.equal(burstValue(transition, 1200), 1);
-  assert.equal(burstValue(transition, 1950), 0.5);
-  assert.equal(burstValue(transition, 2700), 0);
-  assert.equal(burstValue(transition, 5000), 0);
+import { burstValue, loadingState } from './burstTransition.ts';
+test('ease-out explosion, bullet-time, ease-in return finish at 1.5s',()=>{
+ const t={start:0,from:0};
+ assert.equal(burstValue(t,0),0);
+ assert.equal(burstValue(t,250),.9375);
+ assert.equal(burstValue(t,500),1);
+ assert.equal(burstValue(t,749),1);
+ assert.equal(burstValue(t,1125),.75);
+ assert.equal(burstValue(t,1500),0);
+ assert.equal(burstValue(t,3000),0);
 });
-
-test('retriggering continues from the current value without a jump', () => {
-  const current = burstValue({ start: 1000, from: 0 }, 1600);
-  const retrigger = { start: 1600, from: current };
-  assert.equal(burstValue(retrigger, 1600), current);
-  assert.ok(burstValue(retrigger, 1700) > current);
-  assert.equal(burstValue(retrigger, 1800), 1);
+test('retrigger preserves current displacement',()=>{
+ const from=burstValue({start:0,from:0},1000);
+ assert.equal(burstValue({start:1000,from},1000),from);
 });
-
-test('idle and pre-start samples remain at their starting values', () => {
-  assert.equal(burstValue({ start: -Infinity, from: 0 }, 1000), 0);
-  assert.equal(burstValue({ start: 1000, from: 0.3 }, 999), 0.3);
+test('loading stages and reconstruction boundaries',()=>{
+ assert.deepEqual(loadingState(0),{stage:'FLOATING',progress:1});
+ assert.equal(loadingState(499).stage,'FLOATING');
+ assert.deepEqual(loadingState(500),{stage:'BUILDING',progress:1});
+ assert.deepEqual(loadingState(875),{stage:'BUILDING',progress:.75});
+ assert.deepEqual(loadingState(1250),{stage:'HOLD',progress:0});
+ assert.equal(loadingState(1999).stage,'HOLD');
+ assert.equal(loadingState(2000).stage,'UI_ACTIVE');
 });

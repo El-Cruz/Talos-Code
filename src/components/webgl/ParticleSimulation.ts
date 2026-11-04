@@ -18,11 +18,10 @@ export class ParticleSimulation {
       uPositions: { value: null as THREE.Texture | null }, uVelocity: { value: null as THREE.Texture | null },
       uOrigins: { value: null as THREE.Texture | null }, uRestoreSpeed: { value: 0 },
       uTime: { value: 0 }, uDt: { value: 0 }, uInitialize: { value: 1 },
-      uBurst: { value: 0 }, uBurstKick: { value: 0 },
+      uBurst: { value: 0 },
       uModelView: { value: new THREE.Matrix4() }, uProjection: { value: new THREE.Matrix4() }, uViewToLocal: { value: new THREE.Matrix4() },
     },
   });
-  private previousBurst = 0;
   constructor(private renderer: THREE.WebGLRenderer, seed: THREE.Texture) {
     this.material.uniforms.uPositions.value = seed;
     this.material.uniforms.uOrigins.value = seed;
@@ -41,10 +40,9 @@ export class ParticleSimulation {
   }
   step(dt: number, time: number, burst: number, velocity: THREE.Texture, modelView: THREE.Matrix4, projection: THREE.Matrix4) {
     const u = this.material.uniforms;
-    u.uDt.value = dt; u.uTime.value = time; u.uBurst.value = burst;
-    // ~22% correction per 60Hz frame, with a nonzero spring even during bursts.
-    u.uRestoreSpeed.value = 1 - Math.exp(-15 * dt * (1 - 0.65 * burst));
-    u.uBurstKick.value = Math.max(0, burst - this.previousBurst); this.previousBurst = burst;
+    u.uDt.value = dt * (1 - 0.95 * burst); u.uTime.value = time; u.uBurst.value = burst;
+    // Disable restoration in the void; restore fully as reconstruction completes.
+    u.uRestoreSpeed.value = 1 - Math.exp(-15 * dt * (1 - burst));
     u.uVelocity.value = velocity;
     u.uModelView.value.copy(modelView); u.uProjection.value.copy(projection); u.uViewToLocal.value.copy(modelView).invert();
     const previous = this.renderer.getRenderTarget();

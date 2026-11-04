@@ -46,7 +46,7 @@ vec3 curl(vec3 p) {
 
 export const simulationShader = /* glsl */ `
 uniform sampler2D uPositions, uVelocity, uOrigins;
-uniform float uTime, uDt, uInitialize, uBurst, uBurstKick, uRestoreSpeed;
+uniform float uTime, uDt, uInitialize, uBurst, uRestoreSpeed;
 uniform mat4 uModelView, uProjection, uViewToLocal;
 varying vec2 vUv;
 ${fieldFunctions}
@@ -60,7 +60,7 @@ void main(){
   vec3 pos=state.xyz; bool ambient=state.w>=.8;
   if(uInitialize>.5){
     if(ambient){
-      float depth=6.0+hash(pos+4.3)*10.0;
+      float depth=7.5+hash(pos+4.3)*7.0;
       vec2 ndc=vec2(hash(pos+1.7),hash(pos+9.2))*2.0-1.0;
       pos=(uViewToLocal*vec4(ndc*depth/vec2(uProjection[0][0],uProjection[1][1]),-depth,1)).xyz;
     }else{for(int i=0;i<16;i++){pos-=gradient(pos)*monitorSDF(pos)*.5;}}
@@ -78,17 +78,15 @@ void main(){
     breathing/=max(1.0,length(breathing));
     pos+=breathing*uDt*(ambient?.12:.06);
     if(!ambient){
-      vec3 radial=pos-vec3(0,-.25,-.2);
-      pos+=(radial/max(length(radial),.001)*1.8+curl(pos*1.8)*.65)*uBurstKick;
       // The home tether also restores surface coverage after particles cross between objects.
-      pos=mix(pos,texture2D(uOrigins,vUv).xyz,1.0-exp(-uDt*18.0*(1.0-.8*uBurst)));
+      pos=mix(pos,texture2D(uOrigins,vUv).xyz,1.0-exp(-uDt*18.0*(1.0-uBurst)));
       vec3 targetSDFSurface=pos;
       for(int i=0;i<2;i++)targetSDFSurface-=gradient(targetSDFSurface)*monitorSDF(targetSDFSurface);
       pos+=(targetSDFSurface-pos)*uRestoreSpeed;
     }else{
       // Wrap dust in view space so all screen regions remain populated after resizing.
       vec4 dust=uModelView*vec4(pos,1);
-      dust.z=-6.0-mod(-dust.z-6.0,10.0);
+      dust.z=-7.5-mod(-dust.z-7.5,7.0);
       vec2 bounds=(-dust.z)/vec2(uProjection[0][0],uProjection[1][1]);
       dust.xy=mod(dust.xy+bounds,2.0*bounds)-bounds;
       pos=(uViewToLocal*dust).xyz;
@@ -99,7 +97,7 @@ void main(){
 
 export const vertexShader = /* glsl */ `
 uniform sampler2D uPositions, uDensity;
-uniform float uTime, uPixelRatio, uFallback;
+uniform float uTime, uPixelRatio, uFallback, uTransitionProgress;
 attribute vec2 aLookup;
 attribute float aRandom;
 varying float vLight, vAmbient;
@@ -122,6 +120,14 @@ void main(){
   // Small render detail precedes the spring; persistent motion lives in the GPU state.
   if(!ambient)pos-=gradient(pos)*monitorSDF(pos)*.35;
   vec4 view=modelViewMatrix*vec4(pos,1);
+  // Map a wide [-3,3] galaxy plane to the entire frustum at each depth.
+  vec3 galaxySeed=vec3(hash(vec3(aLookup,1.7)),hash(vec3(aLookup,9.2)),hash(vec3(aLookup,4.3)));
+  vec2 galaxyXY=galaxySeed.xy*6.0-3.0;
+  float galaxyZ=mix(-5.0,2.0,galaxySeed.z);
+  float depth=9.5-galaxyZ;
+  vec3 galaxy=vec3((galaxyXY/3.0)*depth/vec2(projectionMatrix[0][0],projectionMatrix[1][1]),-depth);
+  galaxy+=curl(galaxy*.35+vec3(uTime*.025))*.035;
+  if(!ambient)view.xyz=mix(view.xyz,galaxy,uTransitionProgress);
   gl_Position=projectionMatrix*view;
   vec2 uv=gl_Position.xy/gl_Position.w*.5+.5;
   float density=texture2D(uDensity,clamp(uv,0.,1.)).x;

@@ -2,12 +2,14 @@
 
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
-import { burstValue, type BurstTransition } from "./burstTransition";
+import { burstValue, loadingState, type BurstTransition } from "./burstTransition";
 import { PARTICLE_TEXTURE_SIZE, ParticleSimulation } from "./ParticleSimulation";
 import { FluidSimulation } from "./FluidSimulation";
 import { vertexShader, fragmentShader } from "./monitorShaders";
 
-export function ParticleMonitor({ activeTab }: { activeTab: string }) {
+export function ParticleMonitor({ activeTab, onReady }: { activeTab: string; onReady: () => void }) {
+  const readyCallback = useRef(onReady);
+  useEffect(() => { readyCallback.current = onReady; }, [onReady]);
   const burstTransition = useRef<BurstTransition>({ start: -Infinity, from: 0 });
   const previousTab = useRef(activeTab);
   useEffect(() => {
@@ -25,7 +27,7 @@ export function ParticleMonitor({ activeTab }: { activeTab: string }) {
     if (!host) return;
     let renderer: THREE.WebGLRenderer;
     try { renderer = new THREE.WebGLRenderer({ alpha: true, antialias: false }); }
-    catch (error) { console.warn("Particle monitor requires WebGL2", error); return; }
+    catch (error) { console.warn("Particle monitor requires WebGL2", error); readyCallback.current(); return; }
     renderer.setClearColor(0x050914, 0);
     host.appendChild(renderer.domElement);
     let fluid: FluidSimulation | null = null;
@@ -73,7 +75,7 @@ export function ParticleMonitor({ activeTab }: { activeTab: string }) {
     geometry.setAttribute("aRandom", new THREE.BufferAttribute(randoms, 1));
     const material = new THREE.ShaderMaterial({
       vertexShader, fragmentShader,
-      uniforms: { uDensity: { value: emptyFlow }, uFallback: { value: simulation ? 0 : 1 }, uPositions: { value: texture }, uTime: { value: 0 }, uPixelRatio: { value: 1 },
+      uniforms: { uTransitionProgress: { value: 1 }, uDensity: { value: emptyFlow }, uFallback: { value: simulation ? 0 : 1 }, uPositions: { value: texture }, uTime: { value: 0 }, uPixelRatio: { value: 1 },
         uDark: { value: new THREE.Color("#0A1128") }, uCyan: { value: new THREE.Color("#66FFFF") } },
       blending: THREE.AdditiveBlending, transparent: true, depthTest: true, depthWrite: false,
     });
@@ -100,6 +102,7 @@ export function ParticleMonitor({ activeTab }: { activeTab: string }) {
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     const start = performance.now();
     let lastFrame = start;
+    let ready = false;
     prevMouse.current = null;
     const modelView = new THREE.Matrix4();
     const strokes: { from: THREE.Vector2; to: THREE.Vector2; force: THREE.Vector2 }[] = [];
@@ -132,7 +135,10 @@ export function ParticleMonitor({ activeTab }: { activeTab: string }) {
       fluid?.step(dt);
       material.uniforms.uDensity.value = fluid?.densityTexture ?? emptyFlow;
       const time = reducedMotion.matches ? 0 : (now-start)/1000;
-      const burst = reducedMotion.matches ? 0 : burstValue(burstTransition.current, now);
+      const loading = loadingState(now-start);
+      if (!ready && (loading.stage === "UI_ACTIVE" || reducedMotion.matches)) { ready = true; readyCallback.current(); }
+      const burst = reducedMotion.matches ? 0 : loading.stage === "UI_ACTIVE" ? burstValue(burstTransition.current, now) : loading.progress;
+      material.uniforms.uTransitionProgress.value = burst;
       material.uniforms.uTime.value = time;
       points.updateMatrixWorld(); camera.updateMatrixWorld();
       modelView.multiplyMatrices(camera.matrixWorldInverse, points.matrixWorld);
