@@ -8,6 +8,7 @@ import { ParticleSimulation } from "./ParticleSimulation";
 import { selectPerformanceTier } from "./performanceTier";
 import { FluidSimulation } from "./FluidSimulation";
 import { vertexShader, fragmentShader } from "./monitorShaders";
+import { createPointerProjector, pointerToNDC } from "./pointerInteraction";
 
 export function ParticleMonitor({ activeTab, onReady }: { activeTab: string; onReady: () => void }) {
   const readyCallback = useRef(onReady);
@@ -38,6 +39,8 @@ export function ParticleMonitor({ activeTab, onReady }: { activeTab: string; onR
     try { renderer = new THREE.WebGLRenderer({ alpha: true, antialias: false }); }
     catch (error) { console.warn("Particle monitor requires WebGL2", error); readyCallback.current(); return; }
     renderer.setClearColor(0x050914, 0);
+    renderer.domElement.style.touchAction = "none";
+    renderer.domElement.style.overscrollBehavior = "none";
     host.appendChild(renderer.domElement);
     let fluid: FluidSimulation | null = null;
     // WebGL2 supports float sampling natively; renderable float attachments need this extension.
@@ -77,8 +80,10 @@ export function ParticleMonitor({ activeTab, onReady }: { activeTab: string; onR
     }
     const material = new THREE.ShaderMaterial({
       vertexShader, fragmentShader,
-      defines: simulation ? { HIGH_PHYSICS: 1 } : {},
-      uniforms: { uMotion: { value: 1 }, uMouseUV: { value: new THREE.Vector2() }, uMouseActive: { value: 0 }, uAspect: { value: 1 }, uOffsets: { value: null as THREE.Texture | null }, uTransitionProgress: { value: 1 }, uTime: { value: 0 }, uPixelRatio: { value: 1 },
+      defines: { ...(simulation ? { HIGH_PHYSICS: 1 } : {}), ...(tier.name === "mobile" ? { MOBILE_FRAGMENT: 1 } : {}) },
+      // Vertex positions stay highp; only the mobile fragment opts into mediump.
+      precision: "highp",
+      uniforms: { uMotion: { value: 1 }, uMouse: { value: new THREE.Vector2() }, uMouseView: { value: new THREE.Vector3() }, uHoverRadius: { value: .65 }, uMouseStrength: { value: .18 }, uMouseActive: { value: 0 }, uOffsets: { value: null as THREE.Texture | null }, uTransitionProgress: { value: 1 }, uTime: { value: 0 }, uPixelRatio: { value: 1 },
         uDark: { value: new THREE.Color("#0A1128") }, uCyan: { value: new THREE.Color("#66FFFF") } },
       blending: THREE.AdditiveBlending, transparent: true, depthTest: true, depthWrite: false,
     });
@@ -94,7 +99,6 @@ export function ParticleMonitor({ activeTab, onReady }: { activeTab: string; onR
       renderer.setSize(width, height);
       material.uniforms.uPixelRatio.value = ratio;
       camera.aspect = width / height;
-      material.uniforms.uAspect.value = camera.aspect;
       camera.position.z = Math.max(9.5, 6.0 / camera.aspect);
       camera.lookAt(0, -0.45, 0);
       points.position.x = width > 768 ? 0.9 : 0;
@@ -109,28 +113,57 @@ export function ParticleMonitor({ activeTab, onReady }: { activeTab: string; onR
     let ready = false;
     prevMouse.current = null; mouseActive.current = false;
     const modelView = new THREE.Matrix4();
+    const projectPointer = createPointerProjector();
+    let activeTouch: number | null = null;
     const strokes: { from: THREE.Vector2; to: THREE.Vector2; force: THREE.Vector2 }[] = [];
-    const onPointer = (event: PointerEvent) => {
+    const resetPointer = () => { prevMouse.current = null; mouseActive.current = false; activeTouch = null; };
+    const updatePointer = (clientX: number, clientY: number) => {
       if (document.hidden || reducedMotion.matches) return;
       const rect = renderer.domElement.getBoundingClientRect(), now = performance.now();
-      if (!rect.width || !rect.height) return;
-      // client coordinates and DOM bounds are both CSS pixels: DPR cancels in UV space.
-      mouse.current.set((event.clientX-rect.left)/rect.width, 1-(event.clientY-rect.top)/rect.height);
-      if (mouse.current.x < 0 || mouse.current.x > 1 || mouse.current.y < 0 || mouse.current.y > 1) { resetPointer(); return; }
+      if (!pointerToNDC(clientX, clientY, rect, mouse.current)) { resetPointer(); return; }
       mouseActive.current = true;
-      const point = mouse.current.clone();
+      if (!fluid) return; // No stroke allocations or fluid work on lower tiers.
+      const point = mouse.current.clone().multiplyScalar(.5).addScalar(.5);
       const previous = prevMouse.current;
-      if (fluid && previous && now-previous.time < 150) {
+      if (previous && now-previous.time < 150) {
         const force = point.clone().sub(previous.point).divideScalar(Math.max((now-previous.time)/1000, 1/240)).clampLength(0, 2);
         if(strokes.length<32) strokes.push({ from: previous.point, to: point, force });
       }
       prevMouse.current = { point, time: now };
     };
-    const resetPointer = () => { prevMouse.current = null; mouseActive.current = false; };
-    const endTouch = (event: PointerEvent) => { if (event.pointerType !== "mouse") resetPointer(); };
+    const onPointer = (event: PointerEvent) => {
+      // Touch Events handle fingers once; do not double-splat their Pointer Events.
+      if (event.pointerType !== "touch" && activeTouch === null) updatePointer(event.clientX, event.clientY);
+    };
+    const endPointer = (event: PointerEvent) => { if (event.pointerType === "pen") resetPointer(); };
+    const cancelPointer = (event: PointerEvent) => { if (event.pointerType !== "touch") resetPointer(); };
+    const onTouch = (event: TouchEvent) => {
+      if (activeTouch === null) {
+        activeTouch = event.changedTouches[0]?.identifier ?? null;
+        prevMouse.current = null;
+      }
+      for (let i = 0; i < event.touches.length; i++) {
+        const touch = event.touches[i];
+        if (touch.identifier === activeTouch) { updatePointer(touch.clientX, touch.clientY); break; }
+      }
+    };
+    const endTouch = (event: TouchEvent) => {
+      for (let i = 0; i < event.touches.length; i++) {
+        if (event.touches[i].identifier === activeTouch) return;
+      }
+      resetPointer();
+    };
+    const preventCanvasScroll = (event: TouchEvent) => { if (event.cancelable) event.preventDefault(); };
     window.addEventListener("pointermove", onPointer, { passive: true, capture: true });
-    window.addEventListener("pointerup", endTouch);
-    window.addEventListener("pointercancel", resetPointer);
+    window.addEventListener("pointerdown", onPointer, { passive: true, capture: true });
+    window.addEventListener("pointerup", endPointer);
+    window.addEventListener("pointercancel", cancelPointer);
+    window.addEventListener("touchstart", onTouch, { passive: true, capture: true });
+    window.addEventListener("touchmove", onTouch, { passive: true, capture: true });
+    window.addEventListener("touchend", endTouch, { passive: true, capture: true });
+    window.addEventListener("touchcancel", endTouch, { passive: true, capture: true });
+    renderer.domElement.addEventListener("touchstart", preventCanvasScroll, { passive: false });
+    renderer.domElement.addEventListener("touchmove", preventCanvasScroll, { passive: false });
     window.addEventListener("blur", resetPointer);
     document.documentElement.addEventListener("pointerleave", resetPointer);
     const animate = () => {
@@ -142,8 +175,12 @@ export function ParticleMonitor({ activeTab, onReady }: { activeTab: string; onR
       }
       strokes.length = 0;
       fluid?.step(dt);
-      material.uniforms.uMouseUV.value.copy(mouse.current);
-      const active = mouseActive.current && !reducedMotion.matches ? 1 : 0;
+      points.updateMatrixWorld(); camera.updateMatrixWorld();
+      material.uniforms.uMouse.value.copy(mouse.current);
+      const hit = !simulation && mouseActive.current
+        ? projectPointer(mouse.current, camera, points.matrixWorld, material.uniforms.uMouseView.value)
+        : true;
+      const active = mouseActive.current && hit && !reducedMotion.matches ? 1 : 0;
       material.uniforms.uMouseActive.value += (active-material.uniforms.uMouseActive.value)*(1-Math.exp(-45*dt));
       material.uniforms.uMotion.value = reducedMotion.matches ? 0 : 1;
       const time = reducedMotion.matches ? 0 : (now-start)/1000;
@@ -152,7 +189,6 @@ export function ParticleMonitor({ activeTab, onReady }: { activeTab: string; onR
       const burst = reducedMotion.matches ? 0 : loading.stage === "UI_ACTIVE" ? burstValue(burstTransition.current, now) : loading.progress;
       material.uniforms.uTransitionProgress.value = burst;
       material.uniforms.uTime.value = time;
-      points.updateMatrixWorld(); camera.updateMatrixWorld();
       modelView.multiplyMatrices(camera.matrixWorldInverse, points.matrixWorld);
       if (simulation && fluid) {
         material.uniforms.uOffsets.value = simulation.step(reducedMotion.matches ? 0 : dt, time, burst, fluid.velocityTexture, modelView, camera.projectionMatrix);
@@ -183,8 +219,15 @@ export function ParticleMonitor({ activeTab, onReady }: { activeTab: string; onR
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pointermove", onPointer, true);
-      window.removeEventListener("pointerup", endTouch);
-      window.removeEventListener("pointercancel", resetPointer);
+      window.removeEventListener("pointerdown", onPointer, true);
+      window.removeEventListener("pointerup", endPointer);
+      window.removeEventListener("pointercancel", cancelPointer);
+      window.removeEventListener("touchstart", onTouch, true);
+      window.removeEventListener("touchmove", onTouch, true);
+      window.removeEventListener("touchend", endTouch, true);
+      window.removeEventListener("touchcancel", endTouch, true);
+      renderer.domElement.removeEventListener("touchstart", preventCanvasScroll);
+      renderer.domElement.removeEventListener("touchmove", preventCanvasScroll);
       window.removeEventListener("blur", resetPointer);
       document.documentElement.removeEventListener("pointerleave", resetPointer);
       simulation?.dispose(); fluid?.dispose();

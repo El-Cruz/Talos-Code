@@ -32,15 +32,18 @@ void main(){
 }`;
 
 export const vertexShader = /* glsl */ `
-uniform float uTime, uPixelRatio, uTransitionProgress, uMotion, uMouseActive, uAspect;
-uniform vec2 uMouseUV;
+uniform float uTime, uPixelRatio, uTransitionProgress, uMotion, uMouseActive;
 #ifdef HIGH_PHYSICS
 uniform sampler2D uOffsets;
 attribute vec2 aLookup;
+#else
+uniform vec2 uMouse; // NDC, [-1, 1].
+uniform vec3 uMouseView; // Raycast hit in the same view space as the particle.
+uniform float uHoverRadius, uMouseStrength;
 #endif
 attribute vec3 aTargetPos, aTargetNormal;
 attribute float aRandom;
-varying float vLight, vAmbient;
+varying mediump float vLight, vAmbient;
 ${galaxyFunctions}
 void main(){
   bool ambient=aRandom>=.8;
@@ -54,13 +57,14 @@ void main(){
 #ifdef HIGH_PHYSICS
   view+=texture2D(uOffsets,aLookup).xyz;
 #else
-  vec4 clip=projectionMatrix*vec4(view,1);
-  vec2 away=clip.xy/max(clip.w,.1)*.5+.5-uMouseUV;
-  vec2 metric=away*vec2(uAspect,1);
-  float influence=1.0-smoothstep(0.0,.065,length(metric));
-  vec2 direction=metric/max(length(metric),.001);
-  vec2 push=direction/vec2(uAspect,1)*influence*.012*uMouseActive*uMotion;
-  view.xy+=push*max(-view.z,.1)*2.0/vec2(projectionMatrix[0][0],projectionMatrix[1][1]);
+  // Dust uses the pointer ray at its own depth; the workstation uses the proxy hit.
+  vec3 pointer=ambient?vec3(uMouse*(-view.z)/vec2(projectionMatrix[0][0],projectionMatrix[1][1]),view.z):uMouseView;
+  vec3 away=view-pointer;
+  float distanceToPointer=length(away);
+  float influence=1.0-smoothstep(0.0,uHoverRadius,distanceToPointer);
+  vec3 radialNormal=away/max(distanceToPointer,.0001);
+  // Stateless, bounded displacement: targets cannot drift, and release restores them.
+  view+=radialNormal*influence*influence*uMouseStrength*uMouseActive*uMotion;
 #endif
   gl_Position=projectionMatrix*vec4(view,1);
   float light=ambient?.35:.3+.65*abs(dot(aTargetNormal,normalize(vec3(.4,.6,1))));
@@ -70,8 +74,11 @@ void main(){
 }`;
 
 export const fragmentShader = /* glsl */ `
+#ifdef MOBILE_FRAGMENT
+precision mediump float;
+#endif
 uniform vec3 uDark,uCyan;
-varying float vLight,vAmbient;
+varying mediump float vLight,vAmbient;
 void main(){
  float r=length(gl_PointCoord-.5)*2.;if(r>1.)discard;
  float alpha=(1.-smoothstep(.05,1.,r))*mix(.1,.045,vAmbient)*mix(.4,1.,vLight);
