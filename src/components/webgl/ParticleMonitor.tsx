@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { burstValue, loadingState, type BurstTransition } from "./burstTransition";
+import { bakeWorkstation } from "./bakeWorkstation";
 import { ParticleSimulation } from "./ParticleSimulation";
 import { selectPerformanceTier } from "./performanceTier";
 import { FluidSimulation } from "./FluidSimulation";
@@ -22,6 +23,7 @@ export function ParticleMonitor({ activeTab, onReady }: { activeTab: string; onR
   }, [activeTab]);
   const container = useRef<HTMLDivElement>(null);
   const mouse = useRef(new THREE.Vector2());
+  const mouseActive = useRef(false);
   const prevMouse = useRef<{ point: THREE.Vector2; time: number } | null>(null);
   useEffect(() => {
     const host = container.current;
@@ -39,52 +41,44 @@ export function ParticleMonitor({ activeTab, onReady }: { activeTab: string; onR
     host.appendChild(renderer.domElement);
     let fluid: FluidSimulation | null = null;
     // WebGL2 supports float sampling natively; renderable float attachments need this extension.
-    if (renderer.extensions.has("EXT_color_buffer_float")) {
+    if (tier.name === "high" && renderer.extensions.has("EXT_color_buffer_float")) {
       try { fluid = new FluidSimulation(renderer, tier.fluidSize, tier.pressureIterations); }
-      catch (error) { console.warn("[fluid] Initialization failed; fluid motion disabled; using ambient curl fallback.", error); }
-    } else {
-      console.warn("[fluid] EXT_color_buffer_float unavailable; fluid advection disabled, using vertex animation fallback.");
+      catch (error) { console.warn("[fluid] Initialization failed; fluid motion disabled; using direct repulsion.", error); }
     }
-    const emptyFlow = new THREE.DataTexture(new Uint8Array(4), 1, 1);
-    emptyFlow.needsUpdate = true;
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 50);
     camera.position.set(0, 0, 8);
     const size = Math.min(tier.particleSize, renderer.capabilities.maxTextureSize), count = size * size;
-    const data = new Float32Array(count * 4);
-    const lookup = new Float32Array(count * 2);
-    const randoms = new Float32Array(count);
-    // Seed all three objects so thin peripherals retain their share of the cloud.
-    let seed = 42;
-    const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
-    for (let i = 0; i < count; i++) {
-      randoms[i] = random();
-      const object = random();
-      const x = random() - 0.5, y = random() - 0.5, z = random() - 0.5;
-      const offset = i * 4;
-      data[offset] = object < 0.72 ? x * 3.4 : object < 0.94 ? x * 2.5 - 0.12 : x * 0.65 + 1.55;
-      data[offset + 1] = object < 0.72 ? y * 3.1 - 0.25 : object < 0.94 ? y * 0.4 - 1.87 : y * 0.45 - 1.82;
-      data[offset + 2] = object < 0.72 ? z * 2.1 : object < 0.94 ? z * 1.1 + 1.35 : z * 0.85 + 1.4;
-      data[offset + 3] = randoms[i];
-      lookup[i * 2] = (i % size + 0.5) / size;
-      lookup[i * 2 + 1] = (Math.floor(i / size) + 0.5) / size;
-    }
-    const texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat, THREE.FloatType);
-    texture.minFilter = texture.magFilter = THREE.NearestFilter;
-    texture.generateMipmaps = false;
-    texture.needsUpdate = true;
+    const { targets, normals, randoms } = bakeWorkstation(count);
+    let texture: THREE.DataTexture | null = null;
     let simulation: ParticleSimulation | null = null;
-    if (renderer.extensions.has("EXT_color_buffer_float")) {
-      try { simulation = new ParticleSimulation(renderer, texture); }
-      catch (error) { console.warn("[particles] Using vertex fallback", error); }
-    }
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(count * 3), 3));
-    geometry.setAttribute("aLookup", new THREE.BufferAttribute(lookup, 2));
+    const targetAttribute = new THREE.BufferAttribute(targets, 3);
+    geometry.setAttribute("position", targetAttribute);
+    geometry.setAttribute("aTargetPos", targetAttribute);
+    geometry.setAttribute("aTargetNormal", new THREE.BufferAttribute(normals, 3));
     geometry.setAttribute("aRandom", new THREE.BufferAttribute(randoms, 1));
+    if (fluid) {
+      const data = new Float32Array(count * 4);
+      const lookup = new Float32Array(count * 2);
+      for (let i=0; i<count; i++) {
+        data[i*4]=targets[i*3]; data[i*4+1]=targets[i*3+1]; data[i*4+2]=targets[i*3+2]; data[i*4+3]=randoms[i];
+        lookup[i*2]=(i%size+.5)/size; lookup[i*2+1]=(Math.floor(i/size)+.5)/size;
+      }
+      texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat, THREE.FloatType);
+      texture.needsUpdate = true;
+      try {
+        simulation = new ParticleSimulation(renderer, texture);
+        geometry.setAttribute("aLookup", new THREE.BufferAttribute(lookup,2));
+      } catch (error) {
+        console.warn("[particles] Using direct repulsion",error);
+        fluid.dispose(); fluid=null; texture.dispose(); texture=null;
+      }
+    }
     const material = new THREE.ShaderMaterial({
       vertexShader, fragmentShader,
-      uniforms: { uTransitionProgress: { value: 1 }, uDensity: { value: emptyFlow }, uFallback: { value: simulation ? 0 : 1 }, uPositions: { value: texture }, uTime: { value: 0 }, uPixelRatio: { value: 1 },
+      defines: simulation ? { HIGH_PHYSICS: 1 } : {},
+      uniforms: { uMotion: { value: 1 }, uMouseUV: { value: new THREE.Vector2() }, uMouseActive: { value: 0 }, uAspect: { value: 1 }, uOffsets: { value: null as THREE.Texture | null }, uTransitionProgress: { value: 1 }, uTime: { value: 0 }, uPixelRatio: { value: 1 },
         uDark: { value: new THREE.Color("#0A1128") }, uCyan: { value: new THREE.Color("#66FFFF") } },
       blending: THREE.AdditiveBlending, transparent: true, depthTest: true, depthWrite: false,
     });
@@ -100,6 +94,7 @@ export function ParticleMonitor({ activeTab, onReady }: { activeTab: string; onR
       renderer.setSize(width, height);
       material.uniforms.uPixelRatio.value = ratio;
       camera.aspect = width / height;
+      material.uniforms.uAspect.value = camera.aspect;
       camera.position.z = Math.max(9.5, 6.0 / camera.aspect);
       camera.lookAt(0, -0.45, 0);
       points.position.x = width > 768 ? 0.9 : 0;
@@ -112,16 +107,17 @@ export function ParticleMonitor({ activeTab, onReady }: { activeTab: string; onR
     let start = performance.now();
     let lastFrame = start;
     let ready = false;
-    prevMouse.current = null;
+    prevMouse.current = null; mouseActive.current = false;
     const modelView = new THREE.Matrix4();
     const strokes: { from: THREE.Vector2; to: THREE.Vector2; force: THREE.Vector2 }[] = [];
-    const onPointer = (event: MouseEvent) => {
+    const onPointer = (event: PointerEvent) => {
       if (document.hidden || reducedMotion.matches) return;
       const rect = renderer.domElement.getBoundingClientRect(), now = performance.now();
       if (!rect.width || !rect.height) return;
       // client coordinates and DOM bounds are both CSS pixels: DPR cancels in UV space.
       mouse.current.set((event.clientX-rect.left)/rect.width, 1-(event.clientY-rect.top)/rect.height);
       if (mouse.current.x < 0 || mouse.current.x > 1 || mouse.current.y < 0 || mouse.current.y > 1) { resetPointer(); return; }
+      mouseActive.current = true;
       const point = mouse.current.clone();
       const previous = prevMouse.current;
       if (fluid && previous && now-previous.time < 150) {
@@ -130,8 +126,11 @@ export function ParticleMonitor({ activeTab, onReady }: { activeTab: string; onR
       }
       prevMouse.current = { point, time: now };
     };
-    const resetPointer = () => { prevMouse.current = null; };
-    window.addEventListener("mousemove", onPointer, { passive: true, capture: true });
+    const resetPointer = () => { prevMouse.current = null; mouseActive.current = false; };
+    const endTouch = (event: PointerEvent) => { if (event.pointerType !== "mouse") resetPointer(); };
+    window.addEventListener("pointermove", onPointer, { passive: true, capture: true });
+    window.addEventListener("pointerup", endTouch);
+    window.addEventListener("pointercancel", resetPointer);
     window.addEventListener("blur", resetPointer);
     document.documentElement.addEventListener("pointerleave", resetPointer);
     const animate = () => {
@@ -143,7 +142,10 @@ export function ParticleMonitor({ activeTab, onReady }: { activeTab: string; onR
       }
       strokes.length = 0;
       fluid?.step(dt);
-      material.uniforms.uDensity.value = fluid?.densityTexture ?? emptyFlow;
+      material.uniforms.uMouseUV.value.copy(mouse.current);
+      const active = mouseActive.current && !reducedMotion.matches ? 1 : 0;
+      material.uniforms.uMouseActive.value += (active-material.uniforms.uMouseActive.value)*(1-Math.exp(-45*dt));
+      material.uniforms.uMotion.value = reducedMotion.matches ? 0 : 1;
       const time = reducedMotion.matches ? 0 : (now-start)/1000;
       const loading = loadingState(now-start);
       if (!ready && (loading.stage === "UI_ACTIVE" || reducedMotion.matches)) { ready = true; readyCallback.current(); }
@@ -152,8 +154,8 @@ export function ParticleMonitor({ activeTab, onReady }: { activeTab: string; onR
       material.uniforms.uTime.value = time;
       points.updateMatrixWorld(); camera.updateMatrixWorld();
       modelView.multiplyMatrices(camera.matrixWorldInverse, points.matrixWorld);
-      if (simulation) {
-        material.uniforms.uPositions.value = simulation.step(reducedMotion.matches ? 0 : dt, time, burst, fluid?.velocityTexture ?? emptyFlow, modelView, camera.projectionMatrix);
+      if (simulation && fluid) {
+        material.uniforms.uOffsets.value = simulation.step(reducedMotion.matches ? 0 : dt, time, burst, fluid.velocityTexture, modelView, camera.projectionMatrix);
       }
       renderer.render(scene, camera);
     };
@@ -180,13 +182,15 @@ export function ParticleMonitor({ activeTab, onReady }: { activeTab: string; onR
     if (!document.hidden) renderer.setAnimationLoop(animate);
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("mousemove", onPointer, true);
+      window.removeEventListener("pointermove", onPointer, true);
+      window.removeEventListener("pointerup", endTouch);
+      window.removeEventListener("pointercancel", resetPointer);
       window.removeEventListener("blur", resetPointer);
       document.documentElement.removeEventListener("pointerleave", resetPointer);
-      simulation?.dispose(); fluid?.dispose(); emptyFlow.dispose();
+      simulation?.dispose(); fluid?.dispose();
       observer.disconnect();
       renderer.setAnimationLoop(null);
-      geometry.dispose(); material.dispose(); texture.dispose(); renderer.dispose();
+      geometry.dispose(); material.dispose(); texture?.dispose(); renderer.dispose();
       renderer.domElement.remove();
     };
   }, []);
