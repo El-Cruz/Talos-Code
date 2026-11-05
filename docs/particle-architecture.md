@@ -1,100 +1,123 @@
-# Hybrid particle rendering
+# Desktop TSL compute and mobile 2D canvas rendering
 
-The implementation uses one `THREE.Points` draw with static baked geometry on every
-tier. `bakeWorkstation.ts` samples the monitor, keyboard and mouse once at mount;
-no vertex shader evaluates an SDF, gradients or 3D curl noise.
+ParticleMonitor.tsx lazy-loads DesktopParticleMonitor.tsx for desktops. Mobile uses
+MobileParticleCanvas.tsx: a CPU spring simulation drawn with Canvas 2D.
+The previous MobileParticleVideo.tsx and its helpers remain available but are not
+imported by the active fallback; mobile rendering requires no video assets or GPU API.
+The old FluidSimulation and
+ParticleSimulation classes are no longer imported by the active rendering components.
 
-| Tier | Particles | Physics | Fragment precision |
-| --- | ---: | --- | --- |
-| Mobile | 65,536 | Stateless vertex repulsion, no simulation targets | mediump |
-| Standard | 262,144 | Stateless vertex repulsion, no simulation targets | highp |
-| High | 1,048,576 | 128x128 fluid + 1024x1024 persistent position offsets | highp |
+| Route | Backend | Count | Simulation |
+| --- | --- | ---: | --- |
+| High desktop | WebGPU | 1,048,576 | WGSL storage buffers |
+| Standard desktop | WebGPU | 262,144 | Same WGSL kernel |
+| Desktop without WebGPU | WebGLBackend | At most 262,144 | Same TSL kernel via Transform Feedback |
+| Mobile / desktop initialization failure | Canvas 2D | Alpha-masked 6px grid | CPU springs and radial pointer repulsion |
 
-## Implementation plan and code map
+## Initialization and ownership
 
-1. Select an initial tier with `performanceTier.ts`; create the static
-   `aTargetPos`, `aTargetNormal` and `aRandom` attributes in `ParticleMonitor.tsx`.
-   Allocate `FluidSimulation` and `ParticleSimulation` only for High with supported
-   float render targets. Failed initialization selects vertex repulsion. High
-   retains the full fluid solve and reads the latest offset texture every frame.
-2. Compile `monitorShaders.ts` with `HIGH_PHYSICS` only when simulation initialized.
-   Lower tiers compile out all simulation samplers. Small sine waves supply idle
-   motion; each frame starts from a baked target, so displacement cannot accumulate.
-   Loading and tab transitions continue to interpolate between the workstation
-   and the galaxy. Only the mobile fragment changes its default to `mediump`;
-   vertex calculations stay `highp`, with matching explicit `mediump` varyings.
-3. Feed both mouse/pen and touch through `pointerToNDC` in `pointerInteraction.ts`.
-   Global capture listeners receive input even over the UI. Track one touch
-   identifier and ignore its duplicate Pointer Events. Mutable refs bridge input
-   to the frame loop without React updates. High converts NDC to UV and splats
-   velocity lines; the fallback uses a CPU raycast against three simple proxy
-   boxes, not against the point cloud.
-4. Bound work with DPR <= 1.5, no antialiasing and a complete animation-loop pause
-   while the document is hidden. Dispose targets, geometry, material, renderer and
-   listeners on unmount. Canvas-only non-passive touch listeners prevent native
-   gestures, while scrollable UI content keeps its normal touch behavior.
+Await renderer.init() before dispatching compute or rendering. Three.js r187
+automatically attempts WebGLBackend if WebGPU initialization fails. The React effect
+checks cancellation after asynchronous initialization and compilation, preventing
+orphan canvases/loops during Strict Mode or unmount. GPU loss and uncaptured errors
+stop the desktop loop and select the mobile canvas path.
 
-## Coordinate and shader contract
+desktopCompute.ts allocates positions and velocities with instancedArray(count,
+'vec4'). A third immutable vec4 buffer holds baked anchors and seeds. Initialization
+seeds positions and clears velocities. Each frame computes before drawing, with no
+CPU simulation uploads or production readbacks.
 
-`uMouse` is NDC, `uMouseView` is the raycast point in camera/view coordinates.
-Particles and the 3D hit use the same space, including the workstation's rotation
-and translation. The proxy boxes approximate surfaces; they are not exact mesh
-intersection tests. When no box is hit, a camera-facing plane supplies a position.
-Ambient dust projects the pointer ray onto each particle's depth plane.
+## Kernel contract
 
-```ts
-ndc.set(
-  (clientX - rect.left) / rect.width * 2 - 1,
-  1 - (clientY - rect.top) / rect.height * 2,
-);
-// client coordinates and rect are CSS pixels: no devicePixelRatio multiplication.
-raycaster.setFromCamera(ndc, camera);
-// High-tier fluid coordinates:
-uv.copy(ndc).multiplyScalar(0.5).addScalar(0.5);
+Each invocation accesses only element(instanceIndex). Both inputs are snapshotted
+before either output is written. There are no neighboring reads, atomics, workgroup
+memory, barriers or simulation textures. WGSL updates these buffers in-place.
+Transform Feedback cannot read and write the same physical buffer; Three.js manages
+alternating GPU buffers internally. These are buffers, not ping-pong FBO textures.
+
+The motion field is an analytic curl of a trigonometric vector potential with two
+octaves. This supplies smooth 3D turbulence, not a pressure/grid fluid solver.
+Foreground particles evaluate the rounded-box workstation SDF: monitor casing minus
+screen aperture, unioned with stand, keyboard and mouse. Central differences estimate
+the surface normal; a strong normal spring and weak baked-anchor tether stabilize
+the shape. Ambient particles omit the SDF. Pointer repulsion, exponential damping,
+a velocity limit and dt <= 1/60 bound motion. Tab/loading transitions remain an eased
+galaxy interpolation in positionNode.
+
+## Rendering and input
+
+SpriteNodeMaterial.positionNode reads positions.toAttribute().xyz. Instanced sprites
+retain visible particle size across backends: WebGPU native points are fixed to one
+pixel. The material adds a circular falloff, additive color and density-adjusted
+opacity. Depth testing is enabled, depth writes disabled and DPR capped to 1.5.
+
+Desktop global Pointer Events cover mouse, pen and touch. The three-box CPU raycast
+returns view coordinates, converted to model coordinates for compute. There is no
+CPU point-cloud picking. Mobile uses canvas-scoped Pointer Events with capture. Hidden documents
+pause the loop and freeze loading/transition clocks.
+
+## Mobile canvas fallback
+
+`MobileParticleCanvas` is a Next.js Client Component using `useRef` and `useEffect`.
+A detached 480 × 360 canvas draws a CRT shell, screen, stand and keyboard. One
+`getImageData` call per mount samples a 6px grid where alpha exceeds 128. Only those
+samples become particles with immutable `hx`/`hy` home coordinates; resizing remaps
+the cached samples without another pixel read. The grid bounds the particle count
+below 4,800 regardless of viewport size, and backing-store DPR is capped at 1.5.
+
+Particles are sharp cyan (`#66FFFF`) squares on `#050914`; displacement switches
+them to orange (`#FF6600`). Two color batches avoid per-particle style changes.
+Fixed 1/60-second spring steps, damping and a 50ms catch-up cap keep behavior stable
+across refresh rates and stalls. Touch, pen and primary-button mouse drags repel
+particles radially, including a guard against zero-distance division.
+
+The initial image is static with `awake = false`. Input wakes the loop; after
+release, settled particles snap exactly home and the final frame stops scheduling
+`requestAnimationFrame`. IntersectionObserver and document visibility cancel
+pending frames, releasing captured input and resuming only unfinished motion.
+Reduced motion keeps the illustration static. Cleanup disconnects observers,
+removes listeners and cancels frames, including React Strict Mode remounts.
+
+The canvas fills its parent and accepts a Tailwind `className`. Give the parent an
+explicit height (for example `h-96`) when using it outside the full-screen app:
+
+```tsx
+import { MobileParticleCanvas } from "@/components/webgl/MobileParticleCanvas";
+
+<div className="h-96 w-full">
+  <MobileParticleCanvas />
+</div>
 ```
 
-The fallback branch in `monitorShaders.ts` applies a radial normal to a bounded
-3D distance field. `uHoverRadius = 0.65` and `uMouseStrength = 0.18` are in scene
-units. Release fades `uMouseActive` exponentially, restoring targets immediately
-without a simulation texture. This is a stateless visual approximation, not a
-time-integrated spring or persistent fluid trail.
+The optional `onReady` callback runs after the first nonzero-size draw and should
+only be passed from another Client Component. The illustration is decorative and
+hidden from assistive technology. `touch-action: none` applies only to the canvas;
+the app's overlaid controls retain their own input handling.
 
-```glsl
-vec3 pointer = ambient
-  ? vec3(uMouse * (-view.z) /
-         vec2(projectionMatrix[0][0], projectionMatrix[1][1]), view.z)
-  : uMouseView;
-vec3 away = view - pointer;
-float distanceToPointer = length(away);
-float influence = 1.0 - smoothstep(0.0, uHoverRadius, distanceToPointer);
-vec3 radialNormal = away / max(distanceToPointer, 0.0001);
-view += radialNormal * influence * influence
-      * uMouseStrength * uMouseActive * uMotion;
-```
+## Validation and limits
 
-NDC input follows the [Three.js Raycaster contract](https://threejs.org/docs/pages/Raycaster.html).
-Canvas handlers explicitly set `passive: false` because passive listeners cannot
-cancel default gestures; global observation remains passive. See
-[MDN's listener options](https://developer.mozilla.org/en-US/docs/Web/API/EventTarget/addEventListener).
+TypeScript, ESLint, all 12 existing unit tests and the Next.js Webpack production
+build pass. The default Turbopack build fails while starting its CSS worker in
+this environment; the successful build used `next build --webpack`.
+Headless Chromium mobile-emulation checks against that build verified 2D-only
+contexts, one mask read per mount, the DPR cap, touch displacement and orange
+coloring, pixel-identical return home, zero queued RAFs at rest and off-screen,
+intersection resume, touch cancellation, simulated document visibility changes,
+reduced motion and landscape resizing. No browser exceptions were reported.
 
-## Validation and performance limits
+Previous desktop checks:
+Edge browser checks exercised WebGPU at 262,144 and 1,048,576 particles and the
+automatic WebGLBackend fallback at 262,144, without shader errors.
 
-Unit tests cover coordinate mapping with offset canvas bounds, out-of-bounds input,
-and ray projection through transformed cameras/models, including peripherals.
-Existing tests cover tier selection, baked geometry and transition timing.
+A 1,024-particle GPU readback experiment over 120 steps produced identical positions
+on the tested backends. Every particle moved, all values were finite, foreground
+displacement stayed below 0.137 scene units and speed below 0.128 units/second.
 
-An Edge/Playwright browser check exercised all three tiers at DPR 3 (capped to 1.5),
-native touch start/move/end, mouse input, canvas-only scroll cancellation, shader
-compilation, tab transitions and visibility pause/resume. Mobile and Standard
-produced zero simulation passes/targets; High retained ten simulation targets and
-twelve simulation passes at idle, plus splat passes during movement. Three.js also
-owns three empty scratch framebuffer handles internally; these are not simulation
-targets. No WebGL errors were observed. TypeScript, ESLint and the Next.js
-production build passed.
+These are correctness checks on this machine, not a universal 60fps guarantee.
+Physical device/thermal benchmarking and measured runtime downgrades remain separate
+work. Historical tests of the unused mobile video component used a synthetic VP9/WebM clip, verifying input, no seeks,
+no FBOs, missing assets, native fallback, context loss and reduced motion. Hardware
+decoding and the visual quality of final AV1/HEVC footage are unverified until those
+assets exist. This does not claim to diagnose a specific Android driver issue.
 
-These checks validate functionality, not a 60fps hardware claim. Width/CPU/memory
-are initial heuristics, not a GPU benchmark. Before a universal 60fps claim, measure
-the production build on physical iOS/Android and integrated-GPU laptops, including
-sustained touch and thermal load. Track frame times against the 16.7ms budget;
-calibrate particle counts/DPR or add measured runtime downgrades for devices that
-miss it. Runtime quality downgrades are not implemented by this change.
+Reference: [Three.js r187 compute example](https://github.com/mrdoob/three.js/blob/r187/examples/webgpu_compute_particles.html).
