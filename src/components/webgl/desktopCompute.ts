@@ -2,6 +2,7 @@ import * as THREE from "three/webgpu";
 import { Fn, If, abs, cos, exp, float, instanceIndex, instancedArray, length, max, min, mix, sin, smoothstep, uniform, uv, vec3, vec4 } from "three/tsl";
 import type { Node } from "three/webgpu";
 import { bakeWorkstation } from "./bakeWorkstation";
+import { bakeGalaxy } from "./bakeGalaxy";
 
 const roundBox = (p: Node<"vec3">, b: Node<"vec3">, radius: number) => {
   const q = abs(p).sub(b);
@@ -44,6 +45,9 @@ export function createDesktopCompute(count: number) {
   const velocities = instancedArray(count, "vec4");
   const dt = uniform(0), time = uniform(0), transition = uniform(1), motion = uniform(1);
   const pointer = uniform(new THREE.Vector3()), pointerActive = uniform(0);
+  const galaxyMatrix = uniform(new THREE.Matrix4());
+  const galaxyExtent = uniform(new THREE.Vector2(8, 5));
+  const explosion = uniform(0);
 
   const initialize = Fn(() => {
     positions.element(instanceIndex).assign(targets.element(instanceIndex));
@@ -86,13 +90,25 @@ export function createDesktopCompute(count: number) {
   const material = new THREE.SpriteNodeMaterial({ transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending });
   const stored = positions.toAttribute();
   const seed = stored.w;
-  const galaxy = vec3(seed.mul(173.31).fract().sub(.5).mul(20), seed.mul(319.73).fract().sub(.5).mul(14), seed.mul(97.17).fract().mul(15).sub(10));
-  material.positionNode = mix(stored.xyz, galaxy, transition);
+  const fieldSeed = instancedArray(bakeGalaxy(count), "vec4").toReadOnly().toAttribute();
+  // Camera-facing galaxy mapped to the full viewport, independent of CRT rotation.
+  const field = vec3(fieldSeed.x.sub(.5).mul(2).mul(galaxyExtent.x),
+    fieldSeed.y.sub(.5).mul(2).mul(galaxyExtent.y), 0);
+  const expanded = field.mul(float(1).add(explosion.mul(.35)));
+  const drift = vec3(sin(time.mul(.6).add(fieldSeed.w.mul(61))), cos(time.mul(.45).add(fieldSeed.w.mul(37))), 0).mul(.065);
+  const galaxy = galaxyMatrix.mul(vec4(expanded.add(drift), 1)).xyz;
+  const away = galaxy.sub(pointer);
+  const distance = length(away);
+  const repulsion = away.div(max(distance, .001)).mul(float(1).sub(smoothstep(0, 1.4, distance))).mul(pointerActive).mul(.45);
+  material.positionNode = mix(stored.xyz, galaxy.add(repulsion), transition);
   material.scaleNode = seed.mul(97.31).fract().mul(.018).add(.012);
   material.colorNode = mix(vec3(.04, .07, .16), vec3(.4, 1, 1), seed.mul(17.1).fract().mul(.6).add(.3));
-  material.opacityNode = float(1).sub(smoothstep(.08, .5, length(uv().sub(.5)))).mul(.04 * Math.sqrt(262144 / count));
+  // Only ~4K sprites are visible in the galaxy; reveal the dense CRT on assembly.
+  const sparse = float(1).sub(smoothstep(4000 / count, 5000 / count, fieldSeed.z));
+  material.opacityNode = float(1).sub(smoothstep(.08, .5, length(uv().sub(.5)))).mul(.04 * Math.sqrt(262144 / count))
+    .mul(mix(1, sparse.mul(5), transition));
   const particles = new THREE.Sprite(material);
   particles.count = count;
   particles.frustumCulled = false;
-  return { positions, velocities, targets, initialize, update, particles, material, dt, time, transition, motion, pointer, pointerActive };
+  return { positions, velocities, targets, initialize, update, particles, material, dt, time, transition, motion, pointer, pointerActive, galaxyMatrix, galaxyExtent, explosion };
 }

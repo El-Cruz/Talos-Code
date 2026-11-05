@@ -7,6 +7,35 @@ void main() {
   gl_Position = vec4(aPosition, 0.0, 1.0);
 }`;
 
+export const mobileParticleVertexShader = /* glsl */ `
+precision highp float;
+attribute vec3 aSeed;
+uniform vec2 uPointer;
+uniform float uAspect;
+uniform float uPhase;
+uniform float uStrength;
+uniform float uPixelScale;
+varying lowp vec4 vColor;
+void main() {
+  vec2 uv = aSeed.xy + vec2(sin(uPhase + aSeed.z * 6.283), cos(uPhase + aSeed.x * 6.283)) * 0.003;
+  vec2 metric = vec2(uAspect, 1.0);
+  vec2 delta = (uv - uPointer) * metric;
+  float radius = length(delta);
+  float influence = (1.0 - smoothstep(0.0, 0.22, radius)) * uStrength;
+  uv += delta / max(radius, 0.001) / metric * influence * 0.055;
+  gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
+  gl_PointSize = max(1.0, (1.0 + aSeed.z * 1.5 + influence) * uPixelScale);
+  vec3 cyan = vec3(0.4, 1.0, 1.0);
+  vec3 orange = vec3(1.0, 0.4, 0.0);
+  vColor = vec4(mix(cyan, orange, step(0.08, influence)), 0.15 + influence * 0.7);
+}`;
+
+export const mobileParticleFragmentShader = /* glsl */ `
+precision mediump float;
+varying lowp vec4 vColor;
+void main() { gl_FragColor = vColor; }
+`;
+
 export const mobileVideoFragmentShader = /* glsl */ `
 precision mediump float;
 uniform sampler2D uVideo;

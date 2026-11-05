@@ -1,45 +1,52 @@
-# Mobile video assets — not yet supplied
+# Tier 3 video background
 
-The component is implemented, but this repository contains no production video
-encodes. Add a seamless portrait loop in these formats, or pass a sources array to
-MobileParticleVideo with your own same-origin or CORS-enabled CDN URLs:
+`MobileParticleVideo` is the active Tier 3 component selected by `useRenderingTier`.
+The configured same-origin sources are:
 
-- talos-mobile-av1.mp4: AV1, 8-bit Main profile.
-- talos-mobile-hevc.mp4: HEVC, 8-bit Main profile, hvc1 sample entry.
-- talos-mobile-h264.mp4: H.264 compatibility fallback.
+- `/videos/tier3-loop-av1.mp4` — AV1 for supporting browsers, including Android/Chrome.
+- `/videos/tier3-loop-hevc.mp4` — HEVC with an `hvc1` sample entry for supporting browsers, including iOS/Safari.
 
-Default descriptors assume 720x1280, 30fps SDR, approximately 1.8 Mbps for AV1/HEVC
-and 2.5 Mbps for H.264. Update the MIME codec strings, dimensions, frame rate and
-bitrate in particleVideoSources to match the delivered encodes. Use no audio track,
-MP4 fast start, and matching first/last frames for a seamless forward loop. Native
-looping is not guaranteed gapless on every decoder.
+Place the actual encodes in `public/videos`, or pass a `sources` array with
+CORS-enabled CDN URLs. These files are not present in this checkout. Default
+capability descriptors assume 720×1280, 30fps, 1.8Mbps SDR; match these fields and
+codec strings to the actual assets. Use silent seamless loops with MP4 fast start.
+Selection uses canPlayType and MediaCapabilities rather than user-agent assumptions.
+The native video is muted, playsInline and looped; failed autoplay retries on a
+gesture. Supply `poster` for a still image before decoding.
 
-The optional poster prop supplies a still frame for blocked or failed playback.
-Without video assets, the background remains #050914 and the UI is allowed to load;
-the application never restarts a particle simulation to cover this case.
+The WebGL1 canvas covers the HTML video with a distorted video-texture quad and
+12,000 independently seeded square particles. Movement is analytic in the vertex
+shader: no per-frame particle buffers, CPU simulation, FBOs or Three.js. Particles
+use cyan #66FFFF and orange #FF6600 near input. Screen-space UV distortion respects
+object-fit: cover and aspect ratio. Pointer release fades the interaction. Existing
+intent-based forward playback stays at 1–1.5× without seeking. Overlay work is
+capped at 30fps, DPR 1 and a 960px longest side. Decoded-frame callbacks avoid
+uploading the video texture on every draw.
 
-The browser ranks playable encodes using MediaCapabilities.decodingInfo, preferring
-power-efficient and smooth candidates. This is an estimate, not an API to force
-hardware decoding. Verify final encodes on physical Android and iOS devices.
-Cross-origin media requires Access-Control-Allow-Origin to allow texture uploads.
+IntersectionObserver and document visibility pause video and rendering. Reduced
+motion displays a still frame. WebGL failure, context loss or an exceeded GPU
+budget switches to native video. Exhausting both sources mounts the 2D CRT canvas.
 
-The video stays in the on-screen DOM with zero opacity, not display:none, and its
-decoded frames feed a WebGL1 quad. If WebGL fails or loses its context, the same
-video becomes visible as native HTML video. The overlay uses two triangles, one
-RGBA8 texture, no FBOs, DPR <= 1.25 and at most 1280 pixels on its longest side.
+## GPU budget
 
-Touch/wheel velocity accumulates bounded intent that decays exponentially. Playback
-smoothly moves between 1x and 1.5x, always forward. Input never assigns currentTime.
-Tab changes do not seek, replace or restart the mobile loop. Touch ripple strength
-and flow are separate shader uniforms. Only gestures targeting the canvas cancel
-native scrolling; scrollable UI content keeps its normal behavior.
+Where `EXT_disjoint_timer_query` is exposed, asynchronous queries sample video
+texture upload and both draws every 30 rendered frames. Disjoint samples are
+discarded. A sample above 4ms reduces resolution by 25%, down to 40% of the initial
+scale. A further over-budget sample disables the overlay. Particle count remains
+12,000 at every enabled resolution. Inspect canvas `data-gpu-timing`, `data-gpu-ms`
+and `data-particle-count` attributes for diagnostics.
 
-Video-frame callbacks mark uploads dirty. Ripples can redraw at display refresh
-without re-uploading video. Hidden pages pause playback/rendering; reduced-motion
-users see a still frame without distortion.
+This is a reactive policy, not a universal 4ms guarantee: samples may exceed the
+budget before adjustment, timers may be unavailable, and video decode/compositing
+cost is outside these GL measurements. Physical mobile testing with real encodes
+is required to establish the target. Timer semantics follow the
+[Khronos specification](https://registry.khronos.org/webgl/extensions/EXT_disjoint_timer_query/).
 
-Verification used a synthetic VP9/WebM fixture, not production AV1/HEVC footage.
-Checks covered playback-rate response, touch coordinates, portrait cover mapping,
-zero JavaScript seeks, zero FBOs, native fallback, missing files, context loss,
-visibility pause and reduced motion. Hardware decoding and final footage quality
-remain unverified until the assets are supplied.
+## Validation
+
+TypeScript, ESLint, 14 particle-related tests and the Next.js Webpack build pass.
+Headless Chromium mobile emulation used an intercepted synthetic VP9/WebM fixture
+at the configured URLs. It verified playback, 12,000-point draws, touch response,
+no GL errors, off-screen pause/resume, reduced motion, context-loss native fallback
+and missing-source 2D fallback. It does not validate AV1/HEVC decoding or physical
+mobile GPU timing.

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { MobileParticleCanvas } from "./MobileParticleCanvas";
 import { createVideoOverlay } from "./createVideoOverlay";
 import { addVideoIntent, stepVideoIntent } from "./videoIntent";
 
@@ -8,11 +9,10 @@ export type ParticleVideoSource = {
   src: string; type: string; width: number; height: number; bitrate: number; framerate: number;
 };
 
-// Supply these encoded assets in public/media, or pass your own sources prop.
+// Same-origin assets supplied by the application, or override sources for a CDN.
 export const particleVideoSources: readonly ParticleVideoSource[] = [
-  { src: "/media/talos-mobile-av1.mp4", type: 'video/mp4; codecs="av01.0.05M.08"', width: 720, height: 1280, bitrate: 1800000, framerate: 30 },
-  { src: "/media/talos-mobile-hevc.mp4", type: 'video/mp4; codecs="hvc1.1.6.L93.B0"', width: 720, height: 1280, bitrate: 1800000, framerate: 30 },
-  { src: "/media/talos-mobile-h264.mp4", type: 'video/mp4; codecs="avc1.4D401F"', width: 720, height: 1280, bitrate: 2500000, framerate: 30 },
+  { src: "/videos/tier3-loop-av1.mp4", type: 'video/mp4; codecs="av01.0.05M.08"', width: 720, height: 1280, bitrate: 1800000, framerate: 30 },
+  { src: "/videos/tier3-loop-hevc.mp4", type: 'video/mp4; codecs="hvc1.1.6.L93.B0"', width: 720, height: 1280, bitrate: 1800000, framerate: 30 },
 ];
 
 async function selectSources(video: HTMLVideoElement, sources: readonly ParticleVideoSource[]) {
@@ -36,12 +36,14 @@ async function selectSources(video: HTMLVideoElement, sources: readonly Particle
 export function MobileParticleVideo({ onReady, sources = particleVideoSources, poster }: {
   onReady: () => void; sources?: readonly ParticleVideoSource[]; poster?: string;
 }) {
+  const [mediaFailed, setMediaFailed] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null), canvasRef = useRef<HTMLCanvasElement>(null);
   const readyCallback = useRef(onReady);
   useEffect(() => { readyCallback.current = onReady; }, [onReady]);
   useEffect(() => {
     const video = videoRef.current, canvas = canvasRef.current;
-    if (!video || !canvas) return;
+    if (!video || !canvas || mediaFailed) return;
+    let visible = false, lastDraw = 0;
     let disposed = false, ready = false, frame = 0, videoFrame = 0, dirty = true, playPending = false;
     let overlay: ReturnType<typeof createVideoOverlay> | undefined;
     let intent = 0, rate = 1, strength = 0, phase = 0, lastTime = performance.now(), lastMediaTime = -1;
@@ -59,7 +61,7 @@ export function MobileParticleVideo({ onReady, sources = particleVideoSources, p
     catch (error) { console.warn("[mobile-video] Using native video", error); showNative(); }
     video.muted = true; video.defaultMuted = true; video.autoplay = !reduced.matches;
     const play = () => {
-      if (disposed || document.hidden || reduced.matches || !video.src || !video.paused || playPending) return;
+      if (disposed || !visible || document.hidden || reduced.matches || !video.src || !video.paused || playPending) return;
       playPending = true;
       void video.play().catch(() => {
         if (!disposed) { video.style.opacity = "1"; markReady(); }
@@ -82,7 +84,7 @@ export function MobileParticleVideo({ onReady, sources = particleVideoSources, p
       }
       previous = { x, y, time: now };
     };
-    const pointerMove = (event: PointerEvent) => { if (event.pointerType !== "touch" && touchId === null) updatePointer(event.clientX, event.clientY); };
+    const pointerMove = (event: PointerEvent) => { if (event.buttons && event.pointerType !== "touch" && touchId === null) updatePointer(event.clientX, event.clientY); };
     const pointerDown = (event: PointerEvent) => { play(); pointerMove(event); };
     const touch = (event: TouchEvent) => {
       play();
@@ -98,13 +100,18 @@ export function MobileParticleVideo({ onReady, sources = particleVideoSources, p
     const preventScroll = (event: TouchEvent) => { if (event.cancelable) event.preventDefault(); };
     const decodedFrame = () => {
       dirty = true;
-      if (!disposed && !document.hidden) videoFrame = video.requestVideoFrameCallback(decodedFrame);
+      videoFrame = 0;
+      if (!disposed && visible && !document.hidden && !reduced.matches) videoFrame = video.requestVideoFrameCallback(decodedFrame);
     };
     const startVideoFrames = () => {
-      if (!document.hidden && typeof video.requestVideoFrameCallback === "function" && !videoFrame) videoFrame = video.requestVideoFrameCallback(decodedFrame);
+      if (visible && !document.hidden && !reduced.matches && typeof video.requestVideoFrameCallback === "function" && !videoFrame) videoFrame = video.requestVideoFrameCallback(decodedFrame);
     };
+    const schedule = () => { if (!disposed && visible && !document.hidden && !frame) frame = requestAnimationFrame(animate); };
     const animate = (now: number) => {
-      if (disposed || document.hidden) return;
+      frame = 0;
+      if (disposed || !visible || document.hidden) return;
+      if (now - lastDraw < 1000 / 30) { schedule(); return; }
+      lastDraw = now;
       const dt = Math.min((now - lastTime) / 1000, .1); lastTime = now;
       ({ intent, rate } = stepVideoIntent(intent, rate, dt));
       if (reduced.matches) { intent = 0; rate = 1; }
@@ -117,38 +124,40 @@ export function MobileParticleVideo({ onReady, sources = particleVideoSources, p
       if (video.readyState >= 2 && video.videoWidth) {
         if (typeof video.requestVideoFrameCallback !== "function") dirty ||= video.currentTime !== lastMediaTime;
         if (overlay && (dirty || strength > .001)) {
-          try { overlay.draw(video, dirty, pointer, flow, phase, strength); canvas.style.opacity = "1"; video.style.opacity = "0"; }
+          try { overlay.draw(video, dirty, pointer, flow, phase, strength); canvas.style.opacity = "1"; video.style.opacity = "1"; }
           catch (error) { console.warn("[mobile-video] Texture upload failed; using native video", error); showNative(); }
         }
         lastMediaTime = video.currentTime; dirty = false; markReady();
       }
-      frame = requestAnimationFrame(animate);
+      if (overlay && !reduced.matches) schedule();
     };
     const visibility = () => {
-      reset(); intent = 0; cancelAnimationFrame(frame);
-      if (document.hidden) {
+      reset(); intent = 0; cancelAnimationFrame(frame); frame = 0;
+      if (document.hidden || !visible) {
         video.pause();
         if (videoFrame) video.cancelVideoFrameCallback(videoFrame);
         videoFrame = 0;
-      } else { lastTime = performance.now(); dirty = true; startVideoFrames(); play(); frame = requestAnimationFrame(animate); }
+      } else { lastTime = performance.now(); dirty = true; startVideoFrames(); play(); schedule(); }
     };
-    const motionChange = () => { reset(); dirty = true; if (reduced.matches) video.pause(); else play(); };
-    const guardPlayback = () => { if (document.hidden || reduced.matches) video.pause(); };
-    const loaded = () => { dirty = true; guardPlayback(); startVideoFrames(); play(); };
+    const motionChange = () => { reset(); dirty = true; strength = 0; if (reduced.matches) video.pause(); else play(); startVideoFrames(); schedule(); };
+    const guardPlayback = () => { if (!visible || document.hidden || reduced.matches) video.pause(); };
+    const loaded = () => { dirty = true; guardPlayback(); startVideoFrames(); play(); schedule(); };
     const contextLost = (event: Event) => { event.preventDefault(); showNative(); markReady(); };
     let candidates: ParticleVideoSource[] = [], sourceIndex = 0;
     const nextSource = () => {
       if (disposed) return;
       const source = candidates[sourceIndex++];
-      if (!source) { console.warn("[mobile-video] No playable video asset. Supply public/media files or sources prop."); video.style.opacity = "1"; canvas.style.opacity = "0"; markReady(); return; }
+      if (!source) { console.warn("[mobile-video] No playable video asset; using the 2D canvas fallback."); markReady(); setMediaFailed(true); return; }
       video.src = source.src; video.load(); play();
     };
     // Do not leave the application's UI hidden if assets are absent or the network stalls.
     const readyTimeout = window.setTimeout(markReady, 3000);
-    const observer = new ResizeObserver(() => { dirty = true; }); observer.observe(canvas);
+    const observer = new ResizeObserver(() => { dirty = true; schedule(); }); observer.observe(canvas);
+    const intersection = new IntersectionObserver(([entry]) => { visible = entry.isIntersecting; visibility(); }); intersection.observe(canvas);
     video.addEventListener("loadeddata", loaded); video.addEventListener("error", nextSource); video.addEventListener("play", guardPlayback);
     window.addEventListener("pointermove", pointerMove, { capture: true, passive: true });
     window.addEventListener("pointerdown", pointerDown, { capture: true, passive: true });
+    window.addEventListener("pointerup", reset, true); window.addEventListener("pointercancel", reset, true);
     window.addEventListener("touchstart", touch, { capture: true, passive: true });
     window.addEventListener("touchmove", touch, { capture: true, passive: true });
     window.addEventListener("touchend", touchEnd, { capture: true, passive: true });
@@ -159,12 +168,12 @@ export function MobileParticleVideo({ onReady, sources = particleVideoSources, p
     canvas.addEventListener("webglcontextlost", contextLost);
     document.addEventListener("visibilitychange", visibility); reduced.addEventListener("change", motionChange);
     void selectSources(video, sources).then(selected => { if (!disposed) { candidates = selected; nextSource(); } });
-    if (!document.hidden) { startVideoFrames(); frame = requestAnimationFrame(animate); }
     return () => {
-      disposed = true; cancelAnimationFrame(frame); clearTimeout(readyTimeout); observer.disconnect();
+      disposed = true; cancelAnimationFrame(frame); clearTimeout(readyTimeout); observer.disconnect(); intersection.disconnect();
       if (videoFrame) video.cancelVideoFrameCallback(videoFrame);
       video.removeEventListener("loadeddata", loaded); video.removeEventListener("error", nextSource); video.removeEventListener("play", guardPlayback);
       window.removeEventListener("pointermove", pointerMove, true); window.removeEventListener("pointerdown", pointerDown, true);
+      window.removeEventListener("pointerup", reset, true); window.removeEventListener("pointercancel", reset, true);
       window.removeEventListener("touchstart", touch, true); window.removeEventListener("touchmove", touch, true);
       window.removeEventListener("touchend", touchEnd, true); window.removeEventListener("touchcancel", touchEnd, true);
       window.removeEventListener("wheel", wheel, true); window.removeEventListener("blur", reset);
@@ -173,7 +182,8 @@ export function MobileParticleVideo({ onReady, sources = particleVideoSources, p
       document.removeEventListener("visibilitychange", visibility); reduced.removeEventListener("change", motionChange);
       video.pause(); video.removeAttribute("src"); video.load(); overlay?.dispose();
     };
-  }, [sources]);
+  }, [sources, mediaFailed]);
+  if (mediaFailed) return <MobileParticleCanvas onReady={onReady} />;
   return <div className="relative h-full w-full overflow-hidden bg-[#050914]" aria-hidden="true">
     <video ref={videoRef} muted playsInline loop preload="auto" crossOrigin="anonymous" poster={poster}
       className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-0" />
