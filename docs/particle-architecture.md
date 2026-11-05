@@ -28,7 +28,7 @@ desktopCompute.ts allocates positions and velocities with instancedArray(count,
 seeds positions and clears velocities. Boot animation now runs in the material's
 positionNode against immutable positions, with no per-frame compute dispatch,
 CPU simulation uploads or production readbacks. A separate immutable vec4 buffer
-contains independent galaxy XY coordinates, visibility and drift phase.
+contains independent ground-plane XZ coordinates, assembly delay and phase.
 
 ## Boot timeline
 
@@ -36,19 +36,53 @@ contains independent galaxy XY coordinates, visibility and drift phase.
 
 | Elapsed | Phase | Behavior |
 | --- | --- | --- |
-| 0–500ms | Quantum Galaxy | Approximately 4,500 visible particles across the viewport |
-| 500–1000ms | Data Explosion | Quartic ease-out expands the field radially by 35% |
-| 1000–1250ms | Quantum Freeze | Expansion holds; drift clock runs at 2% speed |
-| 1250–2000ms | Magnetic Reassembly | Smooth interpolation into baked CRT anchors |
-| 2000ms onward | UI active | Static CRT; UI becomes ready |
+| 0–500ms | Destroyed | All fragments lie on the ground at local Y = -2.15 |
+| 500–850ms | Ignition | Staggered cyan/orange illumination |
+| 850–2350ms | Assembling | Staggered arcs lift fragments into the frontal CRT |
+| After assembly | Title reveal | UI fades in over 600ms; wait for document.fonts.ready |
+| After title reveal | Hero rotation | 1000ms smooth turn to X=0.38, Y=-0.55 radians |
+| Afterwards | Hero active | Static top-lateral CRT |
 
-The camera-facing galaxy plane is recalculated on resize, independently of model
-rotation and translation. Low-amplitude independent sine drift supplies controlled
-turbulence without rotational advection. Model-space radial pointer displacement
-acts directly on the visible galaxy; exponential pointer smoothing avoids jumps.
-Density increases smoothly during reassembly. Reduced motion skips to the static
-shape, hidden documents freeze the clock, and later tab changes reuse the existing
-1.5-second explosion/freeze/return timeline. The video fallback remains prerecorded.
+`bootState(ageMs)` and `heroPose(titleAgeMs)` are pure functions. Per-particle
+assembly delays and vertical arcs run in the TSL material; fragment positions are
+never uploaded per frame. Low-amplitude drift and bounded radial repulsion remain
+on the ground plane. The camera begins above the debris and becomes frontal by
+assembly completion. The separate hero clock starts only after the real UI fade
+and fonts readiness, so slow title loading cannot trigger rotation early.
+
+The exact React orchestration lives in `src/hooks/useHeroReveal.ts`:
+
+```tsx
+useEffect(() => {
+  if (!assembled) return;
+  let cancelled = false;
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
+  const finish = () => {
+    if (!titleRevealed && !reduced.matches) return;
+    void document.fonts.ready.then(() => {
+      if (!cancelled) setHeroReady(true);
+    });
+  };
+  finish();
+  reduced.addEventListener("change", finish);
+  return () => {
+    cancelled = true;
+    reduced.removeEventListener("change", finish);
+  };
+}, [assembled, titleRevealed]);
+```
+
+App.tsx sets `assembled` from the renderer's `onReady` callback and
+`titleRevealed` from the UI layer's opacity `transitionend`. `heroReady` is passed
+through ParticleMonitor without recreating the renderer. The animation effect
+in DesktopParticleMonitor reads it from a ref, starts the hero clock, and applies
+`heroPose(elapsed)` to object rotation. Its cleanup cancels RAF and listeners.
+Hidden time is excluded from both clocks; reduced motion skips assembly and turn.
+
+Below 768px, the visual occupies the bottom 38% of the viewport, while the Hero
+copy aligns to the top. This also positions the Tier 3 video and secondary canvas
+below the title. The Tier 3 footage remains prerecorded: its internal model
+assembly and camera rotation must be encoded into the source video.
 
 ## Retained optional compute kernel (not dispatched during boot)
 
@@ -130,9 +164,10 @@ coloring, pixel-identical return home, zero queued RAFs at rest and off-screen,
 intersection resume, touch cancellation, simulated document visibility changes,
 reduced motion and landscape resizing. No browser exceptions were reported.
 
-The boot browser check exercised the WebGL2 material, all five stage boundaries,
-cursor input and the final assembled UI without shader or browser errors. Timeline
-tests cover continuity and 50× freeze slowdown; galaxy tests cover viewport density.
+The boot browser check exercises the WebGL2 material, floor/ignition/assembly,
+frontal title reveal and delayed hero rotation without shader or browser errors.
+Timeline tests cover continuity and title-gated rotation. Mobile checks compare
+the visible title bounds with the model container.
 
 Previous desktop checks (before this boot update):
 Edge browser checks exercised WebGPU at 262,144 and 1,048,576 particles and the

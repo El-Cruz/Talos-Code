@@ -4,15 +4,15 @@ import { useEffect, useRef } from "react";
 import * as THREE from "three/webgpu";
 import { createDesktopCompute } from "./desktopCompute";
 import { burstValue, type BurstTransition } from "./burstTransition";
-import { bootState } from "./bootSequence";
-import { createPointerProjector, pointerToNDC } from "./pointerInteraction";
+import { bootState, heroPose } from "./bootSequence";
+import { pointerToNDC } from "./pointerInteraction";
 
-export default function DesktopParticleMonitor({ activeTab, count, onReady, onFailure }: {
-  activeTab: string; count: number; onReady: () => void; onFailure: () => void;
+export default function DesktopParticleMonitor({ activeTab, count, onReady, onFailure, heroReady = false }: {
+  activeTab: string; count: number; onReady: () => void; onFailure: () => void; heroReady?: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
-  const callbacks = useRef({ onReady, onFailure });
-  useEffect(() => { callbacks.current = { onReady, onFailure }; }, [onReady, onFailure]);
+  const callbacks = useRef({ onReady, onFailure, heroReady });
+  useEffect(() => { callbacks.current = { onReady, onFailure, heroReady }; }, [onReady, onFailure, heroReady]);
   const previousTab = useRef(activeTab);
   const burst = useRef<BurstTransition>({ start: -Infinity, from: 0 });
   useEffect(() => {
@@ -71,7 +71,15 @@ export default function DesktopParticleMonitor({ activeTab, count, onReady, onFa
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(40, 1, .1, 60);
         const particles = state.particles;
-        particles.rotation.set(.08, -.35, 0);
+        let buildProgress = 0, poseProgress = 0;
+        const applyPose = () => {
+          // Frontal assembly first, then a top-lateral object rotation after title reveal.
+          camera.position.set(0, THREE.MathUtils.lerp(2.8, -.45, buildProgress), Math.max(9.5, 6 / camera.aspect));
+          camera.lookAt(0, -.45, 0); camera.updateMatrixWorld();
+          particles.rotation.set(.38 * poseProgress, -.55 * poseProgress, 0);
+          particles.position.x = camera.aspect > 1 ? .9 * poseProgress : 0;
+          particles.updateMatrixWorld();
+        };
         scene.add(particles);
         const resize = () => {
           const rect = element.getBoundingClientRect();
@@ -79,16 +87,8 @@ export default function DesktopParticleMonitor({ activeTab, count, onReady, onFa
           renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
           renderer.setSize(rect.width, rect.height);
           camera.aspect = rect.width / rect.height;
-          camera.position.set(0, 0, Math.max(9.5, 6 / camera.aspect));
-          camera.lookAt(0, -.45, 0);
           camera.updateProjectionMatrix();
-          particles.position.x = rect.width > 768 ? .9 : 0;
-          camera.updateMatrixWorld(); particles.updateMatrixWorld();
-          const depth = camera.position.length();
-          const halfHeight = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * depth;
-          state.galaxyExtent.value.set(halfHeight * camera.aspect, halfHeight);
-          state.galaxyMatrix.value.copy(particles.matrixWorld).invert().multiply(camera.matrixWorld)
-            .multiply(new THREE.Matrix4().makeTranslation(0, 0, -depth));
+          applyPose();
         };
         const observer = new ResizeObserver(resize);
         observer.observe(element);
@@ -99,11 +99,12 @@ export default function DesktopParticleMonitor({ activeTab, count, onReady, onFa
         if (cancelled || released) { dispose(); return; }
 
         const ndc = new THREE.Vector2(), hit = new THREE.Vector3(), inverse = new THREE.Matrix4();
-        const project = createPointerProjector();
+        const caster = new THREE.Raycaster(), localRay = new THREE.Ray();
+        const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 2.15);
         const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
         let pointerActive = false, ready = false;
         let start = performance.now(), last = start;
-        let fieldTime = 0;
+        let titleVisibleAt: number | null = null;
         let hiddenAt: number | null = document.hidden ? start : null;
         const resetPointer = () => { pointerActive = false; };
         const move = (event: PointerEvent) => {
@@ -137,28 +138,28 @@ export default function DesktopParticleMonitor({ activeTab, count, onReady, onFa
             state.dt.value = reduced.matches ? 0 : dt;
             state.motion.value = reduced.matches ? 0 : 1;
             const tabScatter = burstValue(burst.current, now);
-            fieldTime = loading.stage === "UI_ACTIVE" ? fieldTime + dt : loading.driftTime;
-            state.time.value = reduced.matches ? 0 : fieldTime;
-            state.transition.value = reduced.matches ? 0 : loading.stage === "UI_ACTIVE" ? tabScatter : loading.scatter;
-            state.explosion.value = reduced.matches ? 0 : loading.stage === "UI_ACTIVE" ? tabScatter : loading.explosion;
-            renderer.domElement.dataset.bootStage = reduced.matches ? "UI_ACTIVE" : loading.stage;
-            particles.updateMatrixWorld(); camera.updateMatrixWorld();
+            const assembled = loading.stage === "ASSEMBLED";
+            if (assembled && callbacks.current.heroReady && titleVisibleAt === null) titleVisibleAt = now;
+            poseProgress = reduced.matches ? 1 : heroPose(titleVisibleAt === null ? null : now - titleVisibleAt);
+            buildProgress = reduced.matches ? 1 : 1 - loading.scatter;
+            state.time.value = reduced.matches ? 0 : loading.driftTime;
+            state.transition.value = reduced.matches ? 0 : assembled ? tabScatter : loading.scatter;
+            state.illumination.value = reduced.matches ? 1 : loading.illumination;
+            renderer.domElement.dataset.bootStage = reduced.matches ? "HERO_ACTIVE" : !assembled ? loading.stage :
+              titleVisibleAt === null ? "TITLE_REVEAL" : poseProgress < 1 ? "HERO_ROTATION" : "HERO_ACTIVE";
+            applyPose();
             let active = pointerActive && !reduced.matches;
             if (active) {
-              // Galaxy input intersects its camera-facing plane across the whole screen.
-              if (state.transition.value > 0) {
-                hit.set(ndc.x * state.galaxyExtent.value.x, ndc.y * state.galaxyExtent.value.y, 0)
-                  .applyMatrix4(state.galaxyMatrix.value);
-                state.pointer.value.lerp(hit, 1 - Math.exp(-18 * dt));
-              } else active = project(ndc, camera, particles.matrixWorld, hit);
-              // Projector returns view space; compute and SDF operate in model space.
-              if (state.transition.value === 0) state.pointer.value.copy(hit).applyMatrix4(camera.matrixWorld).applyMatrix4(inverse.copy(particles.matrixWorld).invert());
+              caster.setFromCamera(ndc, camera);
+              localRay.copy(caster.ray).applyMatrix4(inverse.copy(particles.matrixWorld).invert());
+              active = localRay.intersectPlane(groundPlane, hit) !== null;
+              if (active) state.pointer.value.lerp(hit, 1 - Math.exp(-18 * dt));
             }
             state.pointerActive.value += ((active ? 1 : 0) - state.pointerActive.value) * (1 - Math.exp(-12 * dt));
             // Baked SDF anchors stay immutable: field animation lives in positionNode.
             // This also leaves the assembled CRT completely static at transition=0.
             renderer.render(scene, camera);
-            if (!ready && (reduced.matches || loading.stage === "UI_ACTIVE")) { ready = true; callbacks.current.onReady(); }
+            if (!ready && (reduced.matches || assembled)) { ready = true; callbacks.current.onReady(); }
             frame = requestAnimationFrame(animate);
           } catch (error) {
             console.error("[desktop-particles] Compute/render failed", error);
@@ -172,6 +173,7 @@ export default function DesktopParticleMonitor({ activeTab, count, onReady, onFa
             const now = performance.now();
             if (hiddenAt !== null) {
               start += now - hiddenAt;
+              if (titleVisibleAt !== null) titleVisibleAt += now - hiddenAt;
               if (Number.isFinite(burst.current.start)) burst.current.start += now - Math.max(hiddenAt, burst.current.start);
             }
             hiddenAt = null; last = now; frame = requestAnimationFrame(animate);

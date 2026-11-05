@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ParticleMonitor } from "./components/webgl/ParticleMonitor";
+import { useHeroReveal } from "./hooks/useHeroReveal";
 
 const tabs = ["SYSTEM", "ARCHIVE", "CORE", "TERMINAL"] as const;
 type Tab = (typeof tabs)[number];
@@ -35,7 +36,7 @@ function TabContent({ activeTab, onChange }: { activeTab: Tab; onChange: (tab: T
   switch (activeTab) {
     case "SYSTEM":
       return (
-        <section aria-labelledby="system-heading" className="my-auto w-full max-w-2xl py-6 md:w-1/2">
+        <section aria-labelledby="system-heading" className="mt-0 mb-auto w-full max-w-2xl py-2 md:my-auto md:w-1/2 md:py-6">
           <p className="mb-6 text-[10px] leading-relaxed tracking-[0.12em] text-[#8A8A8A]">
             {"TALOS CORE // OMARCHY PROTOCOL -> A.R.I.A "}
             <span className="text-[#66FFFF] [text-shadow:0_0_12px_#66FFFF]">ACTIVE</span>
@@ -86,10 +87,14 @@ function TabContent({ activeTab, onChange }: { activeTab: Tab; onChange: (tab: T
 
 export default function App() {
   const [uiReady, setUiReady] = useState(false);
+  const [titleRevealed, setTitleRevealed] = useState(false);
+  const heroReady = useHeroReveal(uiReady, titleRevealed);
   const [activeTab, setActiveTab] = useState<Tab>("SYSTEM");
   return <main id="main-content" className="h-screen overflow-hidden bg-[#050914] font-mono text-white">
-    <div id="webgl-container" className="fixed inset-0 z-0" aria-hidden="true"><ParticleMonitor activeTab={activeTab} onReady={() => setUiReady(true)} /></div>
-    <div id="ui-layer" inert={!uiReady} aria-hidden={!uiReady} style={{ opacity: uiReady ? 1 : 0, transition: "opacity 600ms ease" }} className="pointer-events-none fixed inset-0 z-10 flex flex-col justify-between p-6">
+    <div id="webgl-container" className="fixed inset-x-0 top-[52%] bottom-[10%] z-0 md:inset-0" aria-hidden="true"><ParticleMonitor activeTab={activeTab} heroReady={heroReady} onReady={() => setUiReady(true)} /></div>
+    <div id="ui-layer" inert={!uiReady} aria-hidden={!uiReady} onTransitionEnd={event => {
+      if (event.target === event.currentTarget && event.propertyName === "opacity" && uiReady) setTitleRevealed(true);
+    }} style={{ opacity: uiReady ? 1 : 0 }} className="pointer-events-none fixed inset-0 z-10 flex flex-col justify-between p-6 transition-opacity duration-600 motion-reduce:transition-none">
       <Header onContact={() => setActiveTab("TERMINAL")} />
       <div className="interface-body flex min-h-0 flex-1 flex-col pt-7">
         <Navigation activeTab={activeTab} onChange={setActiveTab} />
