@@ -47,10 +47,12 @@ These are analytic samples of capped cylinders, a sphere and thin torus surfaces
 the PC uses the existing workstation surface cloud, with ambient points replaced
 by surface anchors so zooming does not scatter points across the UI. Every cloud has the same particle
 count. The TSL material reads three static clouds and blends them with three
-uniform weights, keeping buffers immutable during animation.
+uniform weights, keeping buffers immutable during animation. Two analytic curl
+octaves curve the path; pointer repulsion is added after morphing and stays active
+throughout. See organic-particle-shaders.md for the complete GLSL equivalent.
 
 Each morph lasts 1000ms with smoothstep easing. Position, rotation and scale use
-the same progress. Retargeting snapshots the currently visible weights and pose;
+the same progress. Retargeting snapshots the currently visible weights, curvature and pose;
 it does not jump to the previous target or restart the renderer. The new target
 frame is rendered before `onMorphComplete(id)` runs. Subsequent tab completions
 also wait for the initial Hero rotation to finish. Reduced motion renders the

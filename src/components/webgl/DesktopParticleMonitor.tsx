@@ -6,6 +6,7 @@ import { createDesktopCompute } from "./desktopCompute";
 import { MORPH_DURATION, blendWeights, shapeWeights, type MorphRequest, type Weights } from "./tabMorph";
 import { bootState, heroPose } from "./bootSequence";
 import { pointerToNDC } from "./pointerInteraction";
+import { morphAmplitude } from "./organicMorph";
 
 export default function DesktopParticleMonitor({ request, onMorphComplete, count, onReady, onFailure, heroReady = false }: {
   request: MorphRequest; onMorphComplete: (id: number) => void; count: number; onReady: () => void; onFailure: () => void; heroReady?: boolean;
@@ -32,8 +33,6 @@ export default function DesktopParticleMonitor({ request, onMorphComplete, count
         cleanups.forEach(cleanup => cleanup());
         simulation?.particles.geometry.dispose();
         simulation?.material.dispose();
-        simulation?.initialize.dispose();
-        simulation?.update.dispose();
         void renderer.dispose().catch(error => console.warn("[desktop-particles] Renderer cleanup failed", error));
         renderer.domElement.remove();
       };
@@ -52,7 +51,7 @@ export default function DesktopParticleMonitor({ request, onMorphComplete, count
         release = dispose;
         const webgpu = "isWebGPUBackend" in renderer.backend;
         const particleCount = webgpu ? count : Math.min(count, 262144);
-        renderer.domElement.dataset.backend = webgpu ? "webgpu" : "webgl2-transform-feedback";
+        renderer.domElement.dataset.backend = webgpu ? "webgpu" : "webgl2";
         renderer.domElement.dataset.particleCount = String(particleCount);
         renderer.domElement.style.touchAction = "none";
         renderer.setClearColor(0x050914, 0);
@@ -68,6 +67,7 @@ export default function DesktopParticleMonitor({ request, onMorphComplete, count
         let currentRotation = [...destination.target.rotation], fromRotation = [...currentRotation];
         let currentScale = destination.target.scale, fromScale = currentScale;
         let morphStart: number | null = null, completedId: number | null = null;
+        let curvature = 0, fromCurvature = 0;
         let buildProgress = 0, poseProgress = 0;
         const applyPose = () => {
           // Frontal assembly first, then a top-lateral object rotation after title reveal.
@@ -92,13 +92,12 @@ export default function DesktopParticleMonitor({ request, onMorphComplete, count
         observer.observe(element);
         cleanups.push(() => observer.disconnect());
         resize();
-        renderer.compute(state.initialize);
         await renderer.compileAsync(scene, camera);
         if (cancelled || released) { dispose(); return; }
 
         const ndc = new THREE.Vector2(), hit = new THREE.Vector3(), inverse = new THREE.Matrix4();
         const caster = new THREE.Raycaster(), localRay = new THREE.Ray();
-        const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 2.15);
+        const pointerPlane = new THREE.Plane(), normal = new THREE.Vector3(), center = new THREE.Vector3();
         const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
         let pointerActive = false, ready = false;
         let start = performance.now(), last = start;
@@ -133,13 +132,11 @@ export default function DesktopParticleMonitor({ request, onMorphComplete, count
             const now = performance.now(), dt = Math.min((now - last) / 1000, 1 / 60);
             last = now;
             const loading = bootState(now - start);
-            state.dt.value = reduced.matches ? 0 : dt;
-            state.motion.value = reduced.matches ? 0 : 1;
             const assembled = reduced.matches || loading.stage === "ASSEMBLED";
             const next = callbacks.current.request;
             if (next !== destination) {
               destination = next; fromWeights = [...currentWeights]; fromPosition = [...currentPosition];
-              fromRotation = [...currentRotation]; fromScale = currentScale; morphStart = now;
+              fromRotation = [...currentRotation]; fromScale = currentScale; fromCurvature = curvature; morphStart = now;
             }
             const progress = reduced.matches || morphStart === null ? 1 : Math.min(1, (now - morphStart) / MORPH_DURATION);
             const eased = progress * progress * (3 - 2 * progress);
@@ -148,10 +145,12 @@ export default function DesktopParticleMonitor({ request, onMorphComplete, count
             currentRotation = fromRotation.map((value,i) => THREE.MathUtils.lerp(value,destination.target.rotation[i],eased));
             currentScale = THREE.MathUtils.lerp(fromScale,destination.target.scale,eased);
             state.weights.value.set(...currentWeights);
+            curvature = morphAmplitude(progress, fromCurvature);
+            state.morphDisplacement.value = curvature;
             if (assembled && callbacks.current.heroReady && titleVisibleAt === null) titleVisibleAt = now;
             poseProgress = reduced.matches ? 1 : heroPose(titleVisibleAt === null ? null : now - titleVisibleAt);
             buildProgress = reduced.matches ? 1 : 1 - loading.scatter;
-            state.time.value = reduced.matches ? 0 : loading.driftTime;
+            state.time.value = reduced.matches ? 0 : (now - start) / 1000;
             state.transition.value = assembled ? 0 : loading.scatter;
             state.illumination.value = reduced.matches ? 1 : loading.illumination;
             renderer.domElement.dataset.bootStage = reduced.matches ? "HERO_ACTIVE" : !assembled ? loading.stage :
@@ -163,12 +162,15 @@ export default function DesktopParticleMonitor({ request, onMorphComplete, count
             if (active) {
               caster.setFromCamera(ndc, camera);
               localRay.copy(caster.ray).applyMatrix4(inverse.copy(particles.matrixWorld).invert());
-              active = localRay.intersectPlane(groundPlane, hit) !== null;
-              if (active) state.pointer.value.lerp(hit, 1 - Math.exp(-18 * dt));
+              pointerPlane.setFromNormalAndCoplanarPoint(camera.getWorldDirection(normal), center.setFromMatrixPosition(particles.matrixWorld));
+              active = caster.ray.intersectPlane(pointerPlane, hit) !== null;
+              if (active) {
+                state.pointer.value.lerp(hit.applyMatrix4(inverse), 1 - Math.exp(-18 * dt));
+                state.pointerDirection.value.copy(localRay.direction);
+              }
             }
             state.pointerActive.value += ((active ? 1 : 0) - state.pointerActive.value) * (1 - Math.exp(-12 * dt));
-            // Baked SDF anchors stay immutable: field animation lives in positionNode.
-            // This also leaves the assembled CRT completely static at transition=0.
+            // Only uniforms change. All particle attributes remain immutable.
             renderer.render(scene, camera);
             if (!ready && (reduced.matches || assembled)) { ready = true; callbacks.current.onReady(); }
             if (assembled && progress === 1 && (completedId === null || poseProgress === 1) && completedId !== destination.id) {

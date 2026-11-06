@@ -1,4 +1,4 @@
-# Desktop TSL compute and Tier 3 video rendering
+# Desktop stateless TSL and Tier 3 rendering
 
 ParticleMonitor.tsx uses useRenderingTier and lazy-loads DesktopParticleMonitor.tsx
 for tiers 1 and 2. Tier 3 now uses TabParticleCanvas.tsx to project all three tab
@@ -12,23 +12,21 @@ ParticleSimulation classes are no longer imported by the active rendering compon
 | --- | --- | ---: | --- |
 | High desktop | WebGPU | 1,048,576 | Static anchors and vertex field animation |
 | Standard desktop | WebGPU | 262,144 | Same TSL material |
-| Desktop without WebGPU | WebGLBackend | At most 262,144 | Same TSL material; TF initialization |
+| Desktop without WebGPU | WebGLBackend | At most 262,144 | Same stateless TSL material |
 | Tier 3 / desktop initialization failure | Canvas 2D | 2,400 points | Perspective projection and tab shape interpolation |
 
 ## Initialization and ownership
 
-Await renderer.init() before dispatching compute or rendering. Three.js r187
+Await renderer.init() before rendering. Three.js r187
 automatically attempts WebGLBackend if WebGPU initialization fails. The React effect
 checks cancellation after asynchronous initialization and compilation, preventing
 orphan canvases/loops during Strict Mode or unmount. GPU loss and uncaptured errors
 stop the desktop loop and select the Tier 3 projected canvas path.
 
-desktopCompute.ts allocates positions and velocities with instancedArray(count,
-'vec4'). A third immutable vec4 buffer holds baked anchors and seeds. Initialization
-seeds positions and clears velocities. Boot animation now runs in the material's
-positionNode against immutable positions, with no per-frame compute dispatch,
-CPU simulation uploads or production readbacks. A separate immutable vec4 buffer
-contains independent ground-plane XZ coordinates, assembly delay and phase.
+desktopCompute.ts allocates immutable vec4 attributes for PC, database, atom and
+ground-plane seeds. Boot, morphing and interaction run in the material's
+positionNode with no compute dispatch, mutable position/velocity buffers,
+CPU simulation uploads or production readbacks. Only constant-size uniforms change.
 
 ## Boot timeline
 
@@ -46,7 +44,7 @@ contains independent ground-plane XZ coordinates, assembly delay and phase.
 `bootState(ageMs)` and `heroPose(titleAgeMs)` are pure functions. Per-particle
 assembly delays and vertical arcs run in the TSL material; fragment positions are
 never uploaded per frame. Low-amplitude drift and bounded radial repulsion remain
-on the ground plane. The camera begins above the debris and becomes frontal by
+active during assembly and subsequent tab morphs. The camera begins above the debris and becomes frontal by
 assembly completion. The separate hero clock starts only after the real UI fade
 and fonts readiness, so slow title loading cannot trigger rotation early.
 
@@ -83,35 +81,27 @@ Below 768px, the visual occupies the top portion below navigation, with tab copy
 below it. Terminal overlays its panel inside the enlarged monitor. The retained
 standalone video component cannot execute these dynamic shape morphs.
 
-## Retained optional compute kernel (not dispatched during boot)
+## Stateless organic morphing
 
-Each invocation accesses only element(instanceIndex). Both inputs are snapshotted
-before either output is written. There are no neighboring reads, atomics, workgroup
-memory, barriers or simulation textures. WGSL updates these buffers in-place.
-Transform Feedback cannot read and write the same physical buffer; Three.js manages
-alternating GPU buffers internally. These are buffers, not ping-pong FBO textures.
-
-The motion field is an analytic curl of a trigonometric vector potential with two
-octaves. This supplies smooth 3D turbulence, not a pressure/grid fluid solver.
-Foreground particles evaluate the rounded-box workstation SDF: monitor casing minus
-screen aperture, unioned with stand, keyboard and mouse. Central differences estimate
-the surface normal; a strong normal spring and weak baked-anchor tether stabilize
-the shape. Ambient particles omit the SDF. Pointer repulsion, exponential damping,
-a velocity limit and dt <= 1/60 bound motion. Tab/loading transitions remain an eased
-galaxy interpolation in positionNode. The active boot path uses the static baked
-anchors and bounded analytic field above instead of this flow kernel, so the
-completed CRT does not drift.
+The former optional stateful compute kernel has been removed. Two analytic curl
+octaves bend the smoothstep path with an envelope that vanishes at completion.
+Retargeting carries the current scalar envelope and shape weights. Pointer
+repulsion is added after the morph, so it stays active throughout transitions.
+See organic-particle-shaders.md for the full GLSL equivalent, coordinate contract,
+interruption semantics and distinction from actual collision simulation.
 
 ## Rendering and input
 
-SpriteNodeMaterial.positionNode reads positions.toAttribute().xyz. Instanced sprites
+SpriteNodeMaterial.positionNode reads immutable shape attributes. Instanced sprites
 retain visible particle size across backends: WebGPU native points are fixed to one
 pixel. The material adds a circular falloff, additive color and density-adjusted
 opacity. Depth testing is enabled, depth writes disabled and DPR capped to 1.5.
 
-Desktop global Pointer Events cover mouse, pen and touch. The three-box CPU raycast
-returns view coordinates, converted to model coordinates for compute. There is no
-CPU point-cloud picking. Mobile uses canvas-scoped Pointer Events with capture. Hidden documents
+Desktop global Pointer Events cover mouse, pen and touch. A camera ray and
+camera-facing plane provide local-space pointer coordinates and direction. The
+vertex shader applies radial repulsion around that ray at all model depths. There
+is no CPU point-cloud picking. The standalone mobile canvas uses scoped Pointer
+Events with capture. Hidden documents
 pause the loop and freeze loading/transition clocks.
 
 ## Secondary canvas fallback (missing or unsupported videos)
@@ -154,7 +144,7 @@ the app's overlaid controls retain their own input handling.
 
 ## Validation and limits
 
-TypeScript, ESLint, 17 particle-related tests and the Next.js Webpack production
+TypeScript, ESLint, 22 particle-related tests and the Next.js Webpack production
 build pass. The default Turbopack build fails while starting its CSS worker in
 this environment; the successful build used `next build --webpack`.
 Headless Chromium mobile-emulation checks against that build verified 2D-only
