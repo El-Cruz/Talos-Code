@@ -3,6 +3,7 @@ import { Fn, If, abs, cos, exp, float, instanceIndex, instancedArray, length, ma
 import type { Node } from "three/webgpu";
 import { bakeWorkstation } from "./bakeWorkstation";
 import { bakeGalaxy } from "./bakeGalaxy";
+import { bakeTabShapes } from "./bakeTabShapes";
 
 const roundBox = (p: Node<"vec3">, b: Node<"vec3">, radius: number) => {
   const q = abs(p).sub(b);
@@ -35,9 +36,12 @@ export function createDesktopCompute(count: number) {
   const baked = bakeWorkstation(count);
   const seeds = new Float32Array(count * 4);
   for (let i = 0; i < count; i++) {
-    seeds[i * 4] = baked.targets[i * 3];
-    seeds[i * 4 + 1] = baked.targets[i * 3 + 1];
-    seeds[i * 4 + 2] = baked.targets[i * 3 + 2];
+    // Morph targets contain surfaces only; ambient PC points would explode on zoom.
+    let source = i;
+    while (baked.randoms[source] >= .8) source = (source + 1) % count;
+    seeds[i * 4] = baked.targets[source * 3];
+    seeds[i * 4 + 1] = baked.targets[source * 3 + 1];
+    seeds[i * 4 + 2] = baked.targets[source * 3 + 2];
     seeds[i * 4 + 3] = baked.randoms[i];
   }
   const targets = instancedArray(seeds, "vec4").toReadOnly();
@@ -46,6 +50,10 @@ export function createDesktopCompute(count: number) {
   const dt = uniform(0), time = uniform(0), transition = uniform(1), motion = uniform(1);
   const pointer = uniform(new THREE.Vector3()), pointerActive = uniform(0);
   const illumination = uniform(0);
+  const weights = uniform(new THREE.Vector3(1,0,0));
+  const shapes = bakeTabShapes(count);
+  const database = instancedArray(shapes.database, "vec4").toReadOnly().toAttribute();
+  const atom = instancedArray(shapes.atom, "vec4").toReadOnly().toAttribute();
 
   const initialize = Fn(() => {
     positions.element(instanceIndex).assign(targets.element(instanceIndex));
@@ -98,7 +106,8 @@ export function createDesktopCompute(count: number) {
   const away = debris.sub(pointer);
   const distance = length(away);
   const repulsion = away.div(max(distance, .001)).mul(float(1).sub(smoothstep(0, 1.4, distance))).mul(pointerActive).mul(.45);
-  material.positionNode = mix(debris.add(repulsion), stored.xyz, build).add(vec3(0, lift, 0));
+  const shape = stored.xyz.mul(weights.x).add(database.xyz.mul(weights.y)).add(atom.xyz.mul(weights.z));
+  material.positionNode = mix(debris.add(repulsion), shape, build).add(vec3(0, lift, 0));
   material.scaleNode = seed.mul(97.31).fract().mul(.018).add(.012);
   const lit = smoothstep(fieldSeed.z.mul(.6), fieldSeed.z.mul(.6).add(.4), illumination);
   const cyberColor = mix(vec3(.4, 1, 1), vec3(1, .4, 0), smoothstep(.85, .95, fieldSeed.w).mul(float(1).sub(build.mul(.7))));
@@ -108,5 +117,5 @@ export function createDesktopCompute(count: number) {
   const particles = new THREE.Sprite(material);
   particles.count = count;
   particles.frustumCulled = false;
-  return { positions, velocities, targets, initialize, update, particles, material, dt, time, transition, motion, pointer, pointerActive, illumination };
+  return { positions, velocities, targets, initialize, update, particles, material, dt, time, transition, motion, pointer, pointerActive, illumination, weights };
 }

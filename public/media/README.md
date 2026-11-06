@@ -1,6 +1,8 @@
 # Tier 3 video background
 
-`MobileParticleVideo` is the active Tier 3 component selected by `useRenderingTier`.
+`MobileParticleVideo` remains available as a standalone background. The active
+tab navigation now uses `TabParticleCanvas` at Tier 3 so database and atom morphs
+can execute; see `docs/tab-morphing.md`.
 The configured same-origin sources are:
 
 - `/videos/tier3-loop-av1.mp4` — AV1 for supporting browsers, including Android/Chrome.

@@ -1,9 +1,10 @@
 # Desktop TSL compute and Tier 3 video rendering
 
 ParticleMonitor.tsx uses useRenderingTier and lazy-loads DesktopParticleMonitor.tsx
-for tiers 1 and 2. Tier 3 uses MobileParticleVideo.tsx with a 12,000-point WebGL
-overlay. Missing or unsupported video assets fall back to MobileParticleCanvas.tsx.
-See public/media/README.md for sources, timing limits and fallback behavior.
+for tiers 1 and 2. Tier 3 now uses TabParticleCanvas.tsx to project all three tab
+shapes on a 2D canvas. See tab-morphing.md for the active navigation and completion
+contract. MobileParticleVideo and MobileParticleCanvas remain standalone fallbacks;
+see public/media/README.md for the retained video API.
 The old FluidSimulation and
 ParticleSimulation classes are no longer imported by the active rendering components.
 
@@ -12,8 +13,7 @@ ParticleSimulation classes are no longer imported by the active rendering compon
 | High desktop | WebGPU | 1,048,576 | Static anchors and vertex field animation |
 | Standard desktop | WebGPU | 262,144 | Same TSL material |
 | Desktop without WebGPU | WebGLBackend | At most 262,144 | Same TSL material; TF initialization |
-| Tier 3 / desktop initialization failure | Video + WebGL1 | 12,000 points | Vertex displacement and video UV ripple |
-| Both video sources fail | Canvas 2D | Alpha-masked 6px grid | CPU springs and radial pointer repulsion |
+| Tier 3 / desktop initialization failure | Canvas 2D | 2,400 points | Perspective projection and tab shape interpolation |
 
 ## Initialization and ownership
 
@@ -21,7 +21,7 @@ Await renderer.init() before dispatching compute or rendering. Three.js r187
 automatically attempts WebGLBackend if WebGPU initialization fails. The React effect
 checks cancellation after asynchronous initialization and compilation, preventing
 orphan canvases/loops during Strict Mode or unmount. GPU loss and uncaptured errors
-stop the desktop loop and select the Tier 3 video path.
+stop the desktop loop and select the Tier 3 projected canvas path.
 
 desktopCompute.ts allocates positions and velocities with instancedArray(count,
 'vec4'). A third immutable vec4 buffer holds baked anchors and seeds. Initialization
@@ -79,10 +79,9 @@ in DesktopParticleMonitor reads it from a ref, starts the hero clock, and applie
 `heroPose(elapsed)` to object rotation. Its cleanup cancels RAF and listeners.
 Hidden time is excluded from both clocks; reduced motion skips assembly and turn.
 
-Below 768px, the visual occupies the bottom 38% of the viewport, while the Hero
-copy aligns to the top. This also positions the Tier 3 video and secondary canvas
-below the title. The Tier 3 footage remains prerecorded: its internal model
-assembly and camera rotation must be encoded into the source video.
+Below 768px, the visual occupies the top portion below navigation, with tab copy
+below it. Terminal overlays its panel inside the enlarged monitor. The retained
+standalone video component cannot execute these dynamic shape morphs.
 
 ## Retained optional compute kernel (not dispatched during boot)
 
