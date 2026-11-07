@@ -9,6 +9,13 @@ button:focus-visible, a:focus-visible { outline: 1px solid #66ffff; outline-offs
 .nav-tab.active::after { content: ""; position: absolute; bottom: 0; left: 0; width: 100%; height: 1px; background: #66ffff; box-shadow: 0 0 9px #66ffff; }
 .project-list { scrollbar-width: none; }
 .project-list::-webkit-scrollbar { display: none; }
+.terminal-screen { container-type: size; }
+@container (max-height: 180px) {
+  .terminal-screen h1 { font-size: 9px; margin-bottom: 4px; padding-bottom: 3px; line-height: 1.25; }
+  .terminal-screen p, .terminal-screen label { font-size: 10px; line-height: 1.25; }
+  .terminal-screen label, .terminal-screen label + div { margin-top: 4px; }
+  .terminal-screen input { padding-block: 2px; }
+}
 .project-card { margin-bottom: 18px; }
 .project-image { position: relative; height: 124px; overflow: hidden; border: 1px solid #ffffff20; background-color: #111c2c; background-size: cover; background-position: center; }
 .project-image::after { content: ""; position: absolute; inset: 0; background: linear-gradient(135deg, #17293b66, transparent 50%), repeating-linear-gradient(0deg, transparent 0 3px, #ffffff08 4px); pointer-events: none; }
