@@ -1,0 +1,2 @@
+import type { ReactNode } from "react";
+export function SystemCopy({ children }: { children?: ReactNode }) { return <><p className="mb-6 text-[10px] text-[#8A8A8A]">TALOS CORE // OMARCHY PROTOCOL → A.R.I.A <span className="text-[#66FFFF]">ACTIVE</span></p><h1 id="system-heading" className="text-[clamp(2rem,4.6vw,5rem)] font-bold leading-[1.08] tracking-[-0.06em]">Software engineered to outlast the grid.</h1>{children}</>; }

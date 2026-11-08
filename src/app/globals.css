@@ -28,3 +28,5 @@ button:focus-visible, a:focus-visible { outline: 1px solid #66ffff; outline-offs
 .crosshair { width: 38px; height: 38px; display: grid; place-items: center; border: 1px solid #ffffff16; border-radius: 50%; color: #ffffff35; font-size: 17px; }
 @media (max-width: 639px) { .project-image { height: 100px; } .workspace { padding-top: 1.5rem; } }
 @media (prefers-reduced-motion: reduce) { .glitch-hover:hover .glitch-title, .glitch-hover:hover .project-image::after { animation: none; } }
+
+@media (max-width: 767px) { #ui-layer { height: 100dvh; } }

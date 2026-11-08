@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import { ParticleMonitor } from "./components/webgl/ParticleMonitor";
-import { useHeroReveal } from "./hooks/useHeroReveal";
+import { useState, type ReactNode } from "react";
+import dynamic from "next/dynamic";
+const ParticleMonitor = dynamic(() => import("./components/webgl/ParticleMonitor").then(m => m.ParticleMonitor), { ssr: false });
+
 
 import { tabs, type Tab } from "./components/webgl/tabMorph";
 const projects = [
@@ -35,16 +36,12 @@ function Navigation({ activeTab, onChange }: { activeTab: Tab; onChange: (tab: T
   }} className={`nav-tab relative pb-2 text-[11px] tracking-[0.14em] transition-colors ${activeTab === tab ? "active text-white" : "text-[#8A8A8A] hover:text-white"}`}>{tab}</button>)}</nav>;
 }
 
-function TabContent({ activeTab, onChange, screen }: { activeTab: Tab; onChange: (tab: Tab) => void; screen: { x: number; y: number; width: number; height: number } | null }) {
+function TabContent({ activeTab, onChange, screen, email, setEmail, systemCopy }: { activeTab: Tab; onChange: (tab: Tab) => void; systemCopy?: ReactNode; email: string; setEmail: (value: string) => void; screen: { x: number; y: number; width: number; height: number } | null }) {
   switch (activeTab) {
     case "SYSTEM":
       return (
         <section aria-labelledby="system-heading" className="mt-0 mb-auto w-full max-w-2xl py-2 md:my-auto md:w-1/2 md:py-6">
-          <p className="mb-6 text-[10px] leading-relaxed tracking-[0.12em] text-[#8A8A8A]">
-            {"TALOS CORE // OMARCHY PROTOCOL -> A.R.I.A "}
-            <span className="text-[#66FFFF] [text-shadow:0_0_12px_#66FFFF]">ACTIVE</span>
-          </p>
-          <h1 id="system-heading" className="text-[clamp(2rem,4.6vw,5rem)] font-bold leading-[1.08] tracking-[-0.06em]">Software engineered to outlast the grid.</h1>
+          {systemCopy}
           <button type="button" onClick={() => onChange("TERMINAL")} className="project-cta pointer-events-auto mt-8 border border-white/50 px-6 py-4 text-xs tracking-[0.12em] transition-colors hover:border-[#66FFFF] hover:text-[#66FFFF]">[ INITIATE SEQUENCE ]</button>
         </section>
       );
@@ -75,40 +72,38 @@ function TabContent({ activeTab, onChange, screen }: { activeTab: Tab; onChange:
       );
     case "TERMINAL":
       return (
-        <section aria-labelledby="terminal-heading" className="terminal-screen project-list pointer-events-auto fixed overflow-y-auto bg-[#050914]/95 p-3 md:p-5" style={screen ? { left: screen.x + 2, top: screen.y + 2, width: screen.width - 4, height: screen.height - 4 } : { visibility: "hidden" }}>
+        <section aria-labelledby="terminal-heading" className="terminal-screen project-list pointer-events-auto fixed overflow-y-auto bg-[#050914]/95 p-3 md:p-5" style={screen ? { left: screen.x + 2, top: screen.y + 2, width: screen.width - 4, height: screen.height - 4 } : {}}>
           <h1 id="terminal-heading" className="mb-2 border-b border-[#1A2C4C] pb-1 text-[10px] tracking-[0.15em] text-[#8A8A8A] md:mb-6 md:pb-3 md:text-[10px]">TALOS:CODE — CONTACT TERMINAL</h1>
           <p className="break-all text-[11px] leading-relaxed text-[#66FFFF] md:text-xs">{"> talos_deploy --target=production"}</p>
           <label htmlFor="contact-email" className="mt-2 block text-[11px] leading-relaxed md:mt-5 md:text-xs">{"> Enter contact protocol (email): "}</label>
           <div className="mt-2 flex items-center gap-3 text-[10px] md:mt-3 md:text-sm">
             <span aria-hidden="true" className="text-[#FF6600]">&gt;</span>
-            <input id="contact-email" name="email" type="email" autoComplete="email" spellCheck={false} placeholder="you@company.com" className="min-w-0 flex-1 border-0 border-b border-transparent bg-transparent py-2 font-mono text-base text-white caret-[#66FFFF] outline-none placeholder:text-[#8A8A8A] focus:border-[#66FFFF]" />
+            <input value={email} onChange={event => setEmail(event.target.value)} id="contact-email" name="email" type="email" autoComplete="email" spellCheck={false} placeholder="you@company.com" className="min-w-0 flex-1 border-0 border-b border-transparent bg-transparent py-2 font-mono text-base text-white caret-[#66FFFF] outline-none placeholder:text-[#8A8A8A] focus:border-[#66FFFF]" />
           </div>
         </section>
       );
   }
 }
 
-export default function App() {
-  const [uiReady, setUiReady] = useState(false);
-  const [titleRevealed, setTitleRevealed] = useState(false);
-  const heroReady = useHeroReveal(uiReady, titleRevealed);
-  const [navigation, setNavigation] = useState({ tab: "SYSTEM" as Tab, id: 0 });
+export default function App({ systemCopy }: { systemCopy?: ReactNode }) {
+
   const [completedId, setCompletedId] = useState<number | null>(null);
+  const [email, setEmail] = useState("");
+  const [navigation, setNavigation] = useState({ tab: "SYSTEM" as Tab, id: 0 });
+
   const [screen, setScreen] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const request = navigation;
   const activeTab = navigation.tab;
-  const isMorphComplete = uiReady && completedId === request.id;
+
   const setActiveTab = (tab: Tab) => setNavigation(previous => previous.tab===tab ? previous : {tab,id:previous.id+1});
   return <main id="main-content" className="h-screen overflow-hidden bg-[#050914] font-mono text-white">
-    <div id="scene-container" className="pointer-events-none fixed inset-0 z-0" aria-hidden="true"><ParticleMonitor onScreenLayout={setScreen} request={request} onMorphComplete={setCompletedId} heroReady={heroReady} onReady={() => setUiReady(true)} /></div>
-    <div id="ui-layer" inert={!uiReady} aria-hidden={!uiReady} onTransitionEnd={event => {
-      if (event.target === event.currentTarget && event.propertyName === "opacity" && uiReady) setTitleRevealed(true);
-    }} style={{ opacity: uiReady ? 1 : 0 }} className="pointer-events-none fixed inset-0 z-10 flex flex-col justify-between p-6 transition-opacity duration-600 motion-reduce:transition-none">
+    <div id="scene-container" className="pointer-events-none fixed inset-0 z-0" aria-hidden="true"><ParticleMonitor onScreenLayout={setScreen} request={request} onMorphComplete={setCompletedId} heroReady={true} onReady={() => {}} /></div>
+    <div id="ui-layer" className="pointer-events-none fixed inset-0 z-10 flex flex-col justify-between p-6">
       <Header onContact={() => setActiveTab("TERMINAL")} />
       <div className="interface-body flex min-h-0 flex-1 flex-col pt-7">
         <Navigation activeTab={activeTab} onChange={setActiveTab} />
-        <div id="tab-content" role="tabpanel" aria-labelledby={`tab-${activeTab}`} aria-busy={!isMorphComplete} className="project-list absolute inset-x-6 top-[50%] bottom-16 flex min-h-0 flex-col overflow-y-auto md:static md:flex-1 md:pt-8">
-          {isMorphComplete && <div key={request.id} className="flex min-h-0 flex-1 flex-col"><TabContent screen={screen} activeTab={activeTab} onChange={setActiveTab} /></div>}
+        <div id="tab-content" role="tabpanel" aria-labelledby={`tab-${activeTab}`} aria-busy={completedId !== request.id} className="project-list absolute inset-x-6 top-[50%] bottom-16 flex min-h-0 flex-col overflow-y-auto md:static md:flex-1 md:pt-8">
+          {completedId === request.id && <div className="flex min-h-0 flex-1 flex-col"><TabContent systemCopy={systemCopy} email={email} setEmail={setEmail} screen={screen} activeTab={activeTab} onChange={setActiveTab} /></div>}
         </div>
       </div>
       <footer className="flex items-end justify-between gap-4 border-t border-white/15 pt-4 text-[9px] tracking-[0.13em] text-[#8A8A8A]"><span><span className="mr-2 inline-block h-1.5 w-1.5 rounded-full bg-[#66FFFF]" />SYSTEM ONLINE</span><span className="hidden sm:inline">INDEPENDENT CREATIVE TECHNOLOGY STUDIO</span><span>© TALOS:CODE</span></footer>

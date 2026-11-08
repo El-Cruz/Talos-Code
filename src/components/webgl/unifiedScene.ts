@@ -42,18 +42,21 @@ export function screenBounds(layout:Layout) {
 export class SceneTransition {
   private from:number[];
   private to:number[];
+  private velocity=[0,0,0,0];
   private start=0;
   private id=0;
   constructor(tab:Tab) { this.from=SCENE_TABS.map(t=>Number(t===tab));this.to=[...this.from]; }
   request(tab:Tab,id:number,now:number) {
-    this.from=this.sample(now).tabs;
+    const visible=this.sample(now);this.from=visible.tabs;this.velocity=visible.velocity;
     this.to=SCENE_TABS.map(t=>Number(t===tab));this.start=now;this.id=id;
   }
   sample(now:number,reduced=false) {
-    if(reduced) {this.from=[...this.to];this.start=now-DURATION;}
+    if(reduced) {this.velocity=[0,0,0,0];this.from=[...this.to];this.start=now-DURATION;}
     const progress=reduced ? 1 : Math.min(1,Math.max(0,(now-this.start)/DURATION));
-    const t=smooth(progress),tabs=this.from.map((v,i)=>v+(this.to[i]-v)*t);
-    return {tabs,weights:[tabs[0]+tabs[3],tabs[1],tabs[2]],id:this.id,progress,complete:progress===1};
+    const t=smooth(progress),h=progress*(1-progress)**2;
+    const tabs=this.from.map((v,i)=>v+(this.to[i]-v)*t+this.velocity[i]*DURATION*h);
+    const velocity=this.from.map((v,i)=>(this.to[i]-v)*6*progress*(1-progress)/DURATION+this.velocity[i]*(1-4*progress+3*progress*progress));
+    return {tabs,velocity,weights:[tabs[0]+tabs[3],tabs[1],tabs[2]],id:this.id,progress,complete:progress===1};
   }
 }
 

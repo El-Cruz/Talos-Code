@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 
 const script = resolve("scripts/vercel-ignore-build.mjs");
-test("ignored builds skip assets/docs but preserve code changes, renames and unknown history", () => {
+test("ignored builds skip docs but preserve code changes, renames and unknown history", () => {
   const cwd = mkdtempSync(join(tmpdir(), "talos-ignore-build-"));
   const git = (...args) => execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   const commit = () => { git("add", "."); git("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm", "fixture"); };
@@ -16,7 +16,7 @@ test("ignored builds skip assets/docs but preserve code changes, renames and unk
     assert.equal(run("missing-revision"), 1);
     let base = git("rev-parse", "HEAD");
     writeFileSync(join(cwd, "README.md"), "docs"); writeFileSync(join(cwd, "hero.svg"), "<svg/>"); commit();
-    assert.equal(run(base), 0);
+    assert.equal(run(base), 1);
     base = git("rev-parse", "HEAD"); writeFileSync(join(cwd, ".editorconfig"), "root=true"); commit();
     assert.equal(run(base), 0);
     base = git("rev-parse", "HEAD"); writeFileSync(join(cwd, "app.ts"), "export default 2;"); commit();

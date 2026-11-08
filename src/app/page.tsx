@@ -1,5 +1,3 @@
 import App from "../App";
-
-export default function Home() {
-  return <App />;
-}
+import { SystemCopy } from "../components/SystemCopy";
+export default function Home() { return <App systemCopy={<SystemCopy />} />; }

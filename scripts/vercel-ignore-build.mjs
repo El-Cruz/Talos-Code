@@ -7,7 +7,6 @@ try {
     encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
   }).split("\0").filter(Boolean);
   const irrelevant = path => /\.md$/i.test(path)
-    || /\.(png|jpe?g|gif|svg|webp|avif|ico|bmp)$/i.test(path)
     || /^(\.vscode\/|\.idea\/|\.codex\/|\.agent\/)/.test(path)
     || [".gitignore", ".editorconfig", "AGENTS.md", "CLAUDE.md"].includes(path);
   const skip = paths.length > 0 && paths.every(irrelevant);

@@ -47,3 +47,4 @@ test('frame pressure lowers drawing cost without changing geometry or timeline',
   assert.ok(scene.adaptQuality(.5,12)>.5);
   assert.ok(scene.adaptQuality(.35,100)>=.35);
 });
+test('interrupted morph preserves velocity as well as position',()=>{const motion=new scene.SceneTransition('SYSTEM');motion.request('ARCHIVE',1,0);const before=motion.sample(399).tabs;const at=motion.sample(400).tabs;motion.request('CORE',2,400);const after=motion.sample(401).tabs;assert.ok(Math.abs((at[1]-before[1])-(after[1]-at[1]))<.00002);});
