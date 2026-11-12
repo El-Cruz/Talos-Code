@@ -1,18 +1,30 @@
 import type { Metadata } from "next";
-
+import { Big_Shoulders, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { WebVitals } from "../components/WebVitals";
 
+const displayFace = Big_Shoulders({
+  variable: "--font-display-face",
+  subsets: ["latin"],
+});
+
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
 export const metadata: Metadata = {
-  title: "Talos Code — Software Engineering Agency",
+  title: "Talos Code — Technology Consulting & Software Development",
   description:
-    "A software engineering agency designing, building, and scaling precision-built digital products for founders and enterprises.",
+    "Talos Code is a technology consulting and software development agency specialized in web architecture, mobile applications, business systems integration, and custom technology environments for businesses.",
   openGraph: {
-    title: "Talos Code — Software Engineering Agency",
+    title: "Talos Code — Technology Consulting & Software Development",
     description:
-      "Software engineered to outlast the grid. Custom platforms, mobile, AI, and infrastructure from one senior squad.",
+      "Web architecture, mobile applications, business systems integration, and custom technology environments for businesses.",
     type: "website",
     siteName: "Talos Code",
+    locale: "en_US",
+    alternateLocale: ["es_EC"],
   },
 };
 
@@ -20,16 +32,17 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className="h-full antialiased"
+      className={`${displayFace.variable} ${geistMono.variable} antialiased`}
     >
-      <body className="min-h-full flex flex-col">
+      <body>
         <a
           href="#main-content"
-          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:border focus:border-beam focus:bg-void focus:px-4 focus:py-2 focus:font-mono focus:text-xs focus:text-beam"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:border focus:border-gold focus:bg-basalt focus:px-4 focus:py-2 focus:font-mono focus:text-xs focus:text-gold"
         >
           Skip to content
         </a>
-        {children}<WebVitals />
+        {children}
+        <WebVitals />
       </body>
     </html>
   );
