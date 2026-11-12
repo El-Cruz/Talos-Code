@@ -1,0 +1,36 @@
+import type { Metadata } from "next";
+
+import "./globals.css";
+import { WebVitals } from "../components/WebVitals";
+
+export const metadata: Metadata = {
+  title: "Talos Code — Software Engineering Agency",
+  description:
+    "A software engineering agency designing, building, and scaling precision-built digital products for founders and enterprises.",
+  openGraph: {
+    title: "Talos Code — Software Engineering Agency",
+    description:
+      "Software engineered to outlast the grid. Custom platforms, mobile, AI, and infrastructure from one senior squad.",
+    type: "website",
+    siteName: "Talos Code",
+  },
+};
+
+export default function RootLayout({ children }: LayoutProps<"/">) {
+  return (
+    <html
+      lang="en"
+      className="h-full antialiased"
+    >
+      <body className="min-h-full flex flex-col">
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:border focus:border-beam focus:bg-void focus:px-4 focus:py-2 focus:font-mono focus:text-xs focus:text-beam"
+        >
+          Skip to content
+        </a>
+        {children}<WebVitals />
+      </body>
+    </html>
+  );
+}
