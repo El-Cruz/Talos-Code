@@ -9,7 +9,7 @@ export const defaultLocale: Locale = "en";
 export const localeLabels: Record<Locale, string> = { en: "EN", es: "ES" };
 
 /** Page sections, in order. The ids are also the anchor targets (#services, ...). */
-export const sectionIds = ["services", "work", "about", "contact"] as const;
+export const sectionIds = ["services", "work", "about", "contact", "faq"] as const;
 export type SectionId = (typeof sectionIds)[number];
 
 export const serviceIds = ["web", "mobile", "integration", "environments"] as const;
@@ -99,6 +99,16 @@ export interface Dictionary {
     readonly emailLabel: string;
     readonly emailPlaceholder: string;
   };
+  readonly faq: {
+    readonly heading: string;
+    readonly lead: string;
+    readonly clipsLabel: string;
+    readonly placeholder: string;
+    readonly play: string;
+    readonly pause: string;
+    readonly items: readonly { readonly id: string; readonly question: string; readonly answer: string; readonly clip: string; readonly duration: number }[];
+  };
+  readonly build: { readonly heading: string; readonly lead: string };
   readonly footer: {
     readonly descriptor: string;
     readonly copyright: string;
@@ -109,7 +119,7 @@ const en: Dictionary = {
   htmlLang: "en",
   header: {
     navLabel: "Main navigation",
-    nav: { services: "Services", work: "Work", about: "About us", contact: "Contact" },
+    nav: { services: "Services", work: "Work", about: "About us", contact: "Contact", faq: "FAQ" },
     languageLabel: "Language",
     cta: "Start a project",
   },
@@ -191,6 +201,22 @@ const en: Dictionary = {
     emailLabel: "> Enter your contact email:",
     emailPlaceholder: "you@company.com",
   },
+  faq: {
+    heading: "Questions, answered",
+    lead: "Short demos on the left, straight answers on the right. Pick a question or a clip.",
+    clipsLabel: "Clips",
+    placeholder: "Demo clip loading soon",
+    play: "Play demo",
+    pause: "Pause demo",
+    items: [
+      { id: "environments", clip: "Environments", duration: 20, question: "What does Talos Code actually build?", answer: "Custom technology environments for your business: the website, the apps and the internal tools, connected so your day-to-day runs on one coherent system instead of a pile of disconnected software." },
+      { id: "loyalty", clip: "Loyalty", duration: 25, question: "How do loyalty programs with Apple Wallet and Google Wallet work?", answer: "Your customers add a digital pass to their phone wallet with one tap. Points, stamps and offers update on the pass itself, and you can notify them without asking them to install anything." },
+      { id: "platforms", clip: "Web & mobile", duration: 20, question: "Do I need a website, a mobile app, or both?", answer: "We start from how your customers actually reach you. Often a mobile-first web platform with an installable experience covers both, and we only add a native app when it earns its cost." },
+      { id: "delivery", clip: "Delivery", duration: 15, question: "How long does a project take?", answer: "It depends on scope. We split the work into phases with a defined result each, so you get a first working release early and keep building from something real." },
+      { id: "scale", clip: "Scale", duration: 30, question: "Will it keep working as my business grows?", answer: "Yes. We use a modular architecture, standard infrastructure and clear documentation, so new features, locations or volume are added without rebuilding what already works." },
+    ],
+  },
+  build: { heading: "Built live, line by line", lead: "This is how an environment comes together: structure first, then the node comes online." },
   footer: {
     descriptor: "Technology consulting and software development",
     copyright: "© Talos Code",
@@ -201,7 +227,7 @@ const es: Dictionary = {
   htmlLang: "es-EC",
   header: {
     navLabel: "Navegación principal",
-    nav: { services: "Servicios", work: "Proyectos", about: "Quiénes somos", contact: "Contacto" },
+    nav: { services: "Servicios", work: "Proyectos", about: "Quiénes somos", contact: "Contacto", faq: "FAQ" },
     languageLabel: "Idioma",
     cta: "Iniciar un proyecto",
   },
@@ -283,6 +309,22 @@ const es: Dictionary = {
     emailLabel: "> Ingresa tu correo de contacto:",
     emailPlaceholder: "tu@empresa.com",
   },
+  faq: {
+    heading: "Preguntas, respondidas",
+    lead: "Demos cortas a la izquierda, respuestas directas a la derecha. Elige una pregunta o un clip.",
+    clipsLabel: "Clips",
+    placeholder: "Clip de demo próximamente",
+    play: "Reproducir demo",
+    pause: "Pausar demo",
+    items: [
+      { id: "environments", clip: "Entornos", duration: 20, question: "¿Qué construye exactamente Talos Code?", answer: "Entornos tecnológicos a medida para tu negocio: el sitio web, las apps y las herramientas internas, conectados para que tu operación diaria funcione sobre un sistema coherente y no sobre software suelto." },
+      { id: "loyalty", clip: "Lealtad", duration: 25, question: "¿Cómo funcionan los programas de lealtad con Apple Wallet y Google Wallet?", answer: "Tus clientes agregan un pase digital a la billetera de su teléfono con un toque. Los puntos, sellos y ofertas se actualizan en el propio pase y puedes notificarlos sin pedirles instalar nada." },
+      { id: "platforms", clip: "Web y móvil", duration: 20, question: "¿Necesito un sitio web, una app móvil o ambos?", answer: "Partimos de cómo te encuentran tus clientes. Muchas veces una plataforma web mobile-first con experiencia instalable cubre ambos casos, y solo sumamos una app nativa cuando justifica su costo." },
+      { id: "delivery", clip: "Entrega", duration: 15, question: "¿Cuánto tarda un proyecto?", answer: "Depende del alcance. Dividimos el trabajo en fases con un resultado definido cada una, así recibes pronto una primera versión funcionando y sigues construyendo sobre algo real." },
+      { id: "scale", clip: "Escala", duration: 30, question: "¿Seguirá funcionando cuando mi negocio crezca?", answer: "Sí. Usamos una arquitectura modular, infraestructura estándar y documentación clara, de modo que nuevas funciones, sucursales o volumen se suman sin reconstruir lo que ya funciona." },
+    ],
+  },
+  build: { heading: "Construido en vivo, línea a línea", lead: "Así se arma un entorno: primero la estructura y después el nodo entra en línea." },
   footer: {
     descriptor: "Consultoría tecnológica y desarrollo de software",
     copyright: "© Talos Code",

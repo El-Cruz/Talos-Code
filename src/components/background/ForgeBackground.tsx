@@ -54,18 +54,18 @@ void main() {
   float lines = smoothstep(0.075, 0.0, fold);
   float vein = exp(-abs(f - 0.47) * 55.0);
 
-  vec3 basalt = vec3(0.063, 0.053, 0.043);
-  vec3 bronze = vec3(0.725, 0.541, 0.306);
-  vec3 gold = vec3(0.933, 0.757, 0.478);
-  vec3 patina = vec3(0.435, 0.639, 0.580);
+  vec3 basalt = vec3(0.020, 0.020, 0.027);
+  vec3 bronze = vec3(0.060, 0.330, 0.520);
+  vec3 gold = vec3(0.220, 0.740, 0.970);
+  vec3 patina = vec3(0.000, 0.700, 0.800);
   // The metal cools from bronze to patina as the page scrolls.
   vec3 metal = mix(bronze, patina, uScroll * 0.85);
-  vec3 glow = mix(gold, vec3(0.72, 0.88, 0.80), uScroll * 0.85);
+  vec3 glow = mix(gold, vec3(0.55, 0.95, 1.0), uScroll * 0.85);
 
   float body = smoothstep(0.25, 0.85, f) * (0.35 + 0.65 * r.x);
   vec3 color = basalt + metal * body * 0.22;
   color += metal * lines * (0.18 + 0.5 * body);
-  color += glow * vein * 0.75;
+  color += glow * vein * 0.55;
 
   // Keep the reading side (left) calm, let the metal show on the right; dim behind content.
   float side = smoothstep(-0.55 * aspect, 0.35 * aspect, p.x);

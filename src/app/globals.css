@@ -1,31 +1,63 @@
 @import "tailwindcss";
 
 @theme {
-  --color-basalt: #100e0b;
-  --color-bronze: #b98a4e;
-  --color-gold: #eec17a;
-  --color-patina: #6fa394;
-  --color-bone: #ece4d6;
-  --color-ash: #958c7e;
+  --color-obsidian: #040508;
+  --color-plasma: #ff6b2c;
+  --color-violet: #7c3aed;
+  --color-surface: #090a0f;
+  --color-ivory: #f4f4f6;
+  --color-steel: #8a8f98;
+  --color-glacier: #38bdf8;
+  --color-beam: #00e5ff;
   --font-display: var(--font-display-face), "Arial Narrow", sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
 
-:root { color-scheme: dark; background: var(--color-basalt); }
-html { scroll-behavior: smooth; scroll-padding-top: 5rem; }
-body { margin: 0; color: var(--color-bone); font-family: var(--font-mono); }
+:root { color-scheme: dark; background: var(--color-obsidian); }
+html { scroll-padding-top: 5rem; }
+html.lenis, html.lenis body { height: auto; }
+.lenis.lenis-smooth { scroll-behavior: auto !important; }
+.lenis.lenis-stopped { overflow: clip; }
+body { margin: 0; color: var(--color-ivory); font-family: var(--font-sans); background: var(--color-obsidian); }
 button, a { cursor: pointer; }
-:focus-visible { outline: 1px solid var(--color-gold); outline-offset: 4px; }
-::selection { background: var(--color-bronze); color: var(--color-basalt); }
+:focus-visible { outline: 1px solid var(--color-beam); outline-offset: 4px; }
+::selection { background: var(--color-glacier); color: var(--color-obsidian); }
 
-/* Shown as-is when WebGL is unavailable; the shader paints over it otherwise. */
-.forge-canvas { background: radial-gradient(120% 90% at 85% 35%, #3a2a17 0%, #1b1510 45%, var(--color-basalt) 75%); }
+/* Fallback when WebGL is unavailable; the shader paints over it otherwise. */
+.forge-canvas { background: radial-gradient(120% 90% at 85% 35%, #0b2330 0%, #070b11 45%, var(--color-obsidian) 75%); }
 
-/* The one orchestrated moment: the hero settles in on load. */
-.hero-rise { animation: hero-rise 900ms cubic-bezier(0.2, 0.7, 0.1, 1) both; animation-delay: calc(var(--rise-order, 0) * 110ms + 150ms); }
-@keyframes hero-rise { from { opacity: 0; transform: translateY(1.25rem); } to { opacity: 1; transform: none; } }
+
+/* Spotlight: the pointer position drives a radial border glow (opacity-only transition). */
+.spot { position: relative; isolation: isolate; }
+.spot::before, .spot::after { content: ""; position: absolute; inset: 0; z-index: -1; opacity: 0; transition: opacity 400ms cubic-bezier(0.22, 1, 0.36, 1); pointer-events: none; }
+.spot::before { background: radial-gradient(420px circle at var(--mx, 50%) var(--my, 50%), rgb(56 189 248 / 0.10), transparent 60%); }
+.spot::after { padding: 1px; background: radial-gradient(260px circle at var(--mx, 50%) var(--my, 50%), rgb(0 229 255 / 0.85), transparent 70%); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
+.spot:hover::before, .spot:hover::after, .spot:focus-within::before, .spot:focus-within::after { opacity: 1; }
+
+@keyframes scroll-cue { 0% { transform: scaleY(0); transform-origin: top; } 50% { transform: scaleY(1); transform-origin: top; } 50.01% { transform-origin: bottom; } 100% { transform: scaleY(0); transform-origin: bottom; } }
+.scroll-cue { animation: scroll-cue 2.2s cubic-bezier(0.22, 1, 0.36, 1) infinite; }
 
 @media (prefers-reduced-motion: reduce) {
-  html { scroll-behavior: auto; }
-  .hero-rise { animation: none; }
+  .scroll-cue { animation: none; transform: scaleY(1); }
+  .spot::before, .spot::after { transition: none; }
 }
+
+/* HUD container: dark-glass plane with luminous hairline, inside highlight and calibration marks. */
+.hud { background: rgb(10 14 24 / 0.65); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border: 1px solid rgb(255 255 255 / 0.1); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08), 0 30px 80px -40px rgb(0 0 0 / 0.9); overflow: hidden; }
+.hud-c { position: absolute; width: 10px; height: 10px; border: 0 solid rgb(0 229 255 / 0.85); pointer-events: none; }
+.hud-c.tl { top: 8px; left: 8px; border-top-width: 1px; border-left-width: 1px; }
+.hud-c.br { bottom: 8px; right: 8px; border-bottom-width: 1px; border-right-width: 1px; }
+.hud-plus { position: absolute; font: 400 12px/1 var(--font-mono); color: rgb(255 107 44 / 0.9); pointer-events: none; }
+.hud-scan { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.hud-scan::after { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 36%; background: linear-gradient(to bottom, transparent, rgb(0 229 255 / 0.07), transparent); animation: hud-scan 6s cubic-bezier(0.22, 1, 0.36, 1) infinite; }
+@keyframes hud-scan { from { transform: translateY(-110%); } to { transform: translateY(300%); } }
+
+/* Reticle layers (HudLayer): faint grid always, bright grid only around the cursor. */
+.reticle { background-image: linear-gradient(to right, rgb(255 255 255 / 0.04) 1px, transparent 1px), linear-gradient(to bottom, rgb(255 255 255 / 0.04) 1px, transparent 1px); background-size: 72px 72px; }
+.reticle-bright { background-image: linear-gradient(to right, rgb(0 229 255 / 0.32) 1px, transparent 1px), linear-gradient(to bottom, rgb(0 229 255 / 0.32) 1px, transparent 1px); background-size: 72px 72px; }
+.reticle-mask { -webkit-mask-image: radial-gradient(260px circle at var(--cx, 70%) var(--cy, 30%), #000, transparent 70%); mask-image: radial-gradient(260px circle at var(--cx, 70%) var(--cy, 30%), #000, transparent 70%); }
+.sweep { animation: sweep 9s linear infinite; }
+@keyframes sweep { from { transform: translateY(-5vh); } to { transform: translateY(105vh); } }
+
+@media (prefers-reduced-motion: reduce) { .hud-scan::after, .sweep, .animate-spin { animation: none; } }

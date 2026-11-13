@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Big_Shoulders, Geist_Mono } from "next/font/google";
+import { Big_Shoulders, Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { WebVitals } from "../components/WebVitals";
 
@@ -7,6 +7,8 @@ const displayFace = Big_Shoulders({
   variable: "--font-display-face",
   subsets: ["latin"],
 });
+
+const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
@@ -32,12 +34,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${displayFace.variable} ${geistMono.variable} antialiased`}
+      className={`${displayFace.variable} ${geistSans.variable} ${geistMono.variable} antialiased`}
     >
       <body>
         <a
           href="#main-content"
-          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:border focus:border-gold focus:bg-basalt focus:px-4 focus:py-2 focus:font-mono focus:text-xs focus:text-gold"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:border focus:border-beam focus:bg-obsidian focus:px-4 focus:py-2 focus:font-mono focus:text-xs focus:text-beam"
         >
           Skip to content
         </a>
