@@ -1,11 +1,15 @@
 import type { Metadata } from "next";
-import { Big_Shoulders, Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import { WebVitals } from "../components/WebVitals";
 
-const displayFace = Big_Shoulders({
+const displayFace = localFont({
+  src: "./fonts/BigShoulders-Latin.woff2",
   variable: "--font-display-face",
-  subsets: ["latin"],
+  weight: "100 900",
+  display: "swap",
+  adjustFontFallback: false,
 });
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });

@@ -8,5 +8,5 @@ export function Parallax({ children, range = 8, className }: { children: ReactNo
   const ref = useRef<HTMLDivElement>(null);
   const { scrollYProgress } = useScroll({ target: ref, offset: ["start end", "end start"] });
   const y = useTransform(scrollYProgress, [0, 1], [`${range}%`, `${-range}%`]);
-  return <div ref={ref} className={className}><motion.div style={{ y }} className="h-full w-full will-change-transform">{children}</motion.div></div>;
+  return <div ref={ref} className={className}><motion.div style={{ y }} className="h-full w-full will-change-transform motion-reduce:transform-none!">{children}</motion.div></div>;
 }
